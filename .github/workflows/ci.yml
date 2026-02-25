@@ -21,16 +21,6 @@ jobs:
           node-version: "24"
           cache: "npm"
 
-      - name: Debug npm config (temporary)
-        run: |
-          node -v
-          npm -v
-          echo "registry=$(npm config get registry)"
-          echo "userconfig=$(npm config get userconfig)"
-          npm config list -l | sed -E 's/(_authToken=).+/\1***REDACTED***/g'
-          ls -la
-          test -f .npmrc && (echo "---- .npmrc ----" && sed -E 's/(_authToken=).+/\1***REDACTED***/' .npmrc) || true
-
       - name: Run CI script
         run: ./scripts/ci.sh --check
         env:
