@@ -1,0 +1,36 @@
+{
+  "name": "pi-human-loop",
+  "version": "1.0.0",
+  "description": "A Pi extension that enables an AI coding agent to start a conversation with a human through Zulip whenever the agent has low confidence in a task.",
+  "keywords": [
+    "pi-package"
+  ],
+  "type": "module",
+  "main": "index.ts",
+  "pi": {
+    "extensions": [
+      "index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.2",
+    "@mariozechner/pi-coding-agent": "latest",
+    "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^4.0.18",
+    "typescript": "^5.0.0",
+    "vitest": "^4.0.18"
+  },
+  "scripts": {
+    "type-check": "tsc",
+    "check": "biome check .",
+    "fix": "biome check --write .",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "ci": "./scripts/ci.sh",
+    "setup-hooks": "./scripts/setup-hooks.sh",
+    "prepare": "node scripts/prepare.js"
+  }
+}

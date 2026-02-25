@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Build and Output
+*.log
+coverage/
+
+# OS and IDEs
+.DS_Store
+.idea/
+
+# Tools
+.fix-die-repeat/
+.ralph/
+.pi/
+
+# Local Config
+.env
