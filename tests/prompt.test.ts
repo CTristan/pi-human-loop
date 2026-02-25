@@ -2,7 +2,7 @@
  * Tests for system prompt guidance.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { ASK_HUMAN_GUIDANCE } from "../src/prompt.ts";
 
 describe("prompt", () => {

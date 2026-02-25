@@ -7,7 +7,8 @@
     "skipLibCheck": true,
     "noEmit": true,
     "resolveJsonModule": true,
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "allowImportingTsExtensions": true
   },
-  "include": ["index.ts", "src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"]
+  "include": ["index.ts", "src/**/*.ts", "vitest.config.ts"]
 }
