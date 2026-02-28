@@ -19,7 +19,7 @@ pi-human-loop is a [Pi](https://github.com/badlogic/pi-mono) extension that give
 
 ### 1. Set Up a Zulip Bot
 
-1. Go to your Zulip server → **Settings** → **Bots** → **Add a new bot**
+1. Go to your Zulip server → **Settings** → **Bots** → **Add a new bot** (see [Zulip's bot documentation](https://zulip.com/help/add-a-bot-or-integration) for details)
 2. Choose **Generic bot** type (e.g., name it `pi-agent-bot`)
 3. Copy the bot's email and API key
 4. Create a Zulip stream for your repo (e.g., `my-project`)
