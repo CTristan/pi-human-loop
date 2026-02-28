@@ -7,6 +7,7 @@ import { createZulipClient, type ZulipClient } from "../src/zulip-client.js";
 describe("zulip-client", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
   let client: ZulipClient;
+  const originalFetch = global.fetch;
   const config = {
     serverUrl: "https://zulip.example.com",
     botEmail: "bot@example.com",
@@ -22,6 +23,11 @@ describe("zulip-client", () => {
 
     // Create client
     client = createZulipClient(config);
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    vi.useRealTimers();
   });
 
   it("should post message to Zulip", async () => {
@@ -422,44 +428,46 @@ describe("zulip-client", () => {
     const abortController = new AbortController();
     vi.useFakeTimers();
 
-    mockFetch.mockResolvedValue({
-      ok: false,
-      status: 500,
-      statusText: "Internal Server Error",
-      text: async () => "Server error",
-    });
-
-    let caughtError: Error | null = null;
-
-    const pollPromise = client
-      .pollForReply(
-        "queue-123",
-        "999",
-        "bot@example.com",
-        abortController.signal,
-      )
-      .catch((error: unknown) => {
-        // Immediately catch to prevent unhandled rejection warning
-        caughtError = error as Error;
-        return null;
+    try {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: "Internal Server Error",
+        text: async () => "Server error",
       });
 
-    // Fast-forward through all retries (maxRetries = 10)
-    for (let i = 0; i < 10; i++) {
-      await vi.advanceTimersByTimeAsync(Math.min(5000 * 2 ** i, 60000));
+      let caughtError: Error | null = null;
+
+      const pollPromise = client
+        .pollForReply(
+          "queue-123",
+          "999",
+          "bot@example.com",
+          abortController.signal,
+        )
+        .catch((error: unknown) => {
+          // Immediately catch to prevent unhandled rejection warning
+          caughtError = error as Error;
+          return null;
+        });
+
+      // Fast-forward through all retries (maxRetries = 10)
+      for (let i = 0; i < 10; i++) {
+        await vi.advanceTimersByTimeAsync(Math.min(5000 * 2 ** i, 60000));
+      }
+
+      // Wait for the promise to settle
+      await pollPromise;
+
+      // The promise should have been rejected with the expected error
+      expect(caughtError).toBeDefined();
+      expect(caughtError).toBeInstanceOf(Error);
+      expect((caughtError as Error | null)?.message).toMatch(
+        /Failed to poll for reply/,
+      );
+    } finally {
+      vi.useRealTimers();
     }
-
-    // Wait for the promise to settle
-    await pollPromise;
-
-    // The promise should have been rejected with the expected error
-    expect(caughtError).toBeDefined();
-    expect(caughtError).toBeInstanceOf(Error);
-    expect((caughtError as Error | null)?.message).toMatch(
-      /Failed to poll for reply/,
-    );
-
-    vi.useRealTimers();
   });
 
   it("should retry network errors", async () => {
