@@ -18,10 +18,11 @@
 - **`src/zulip-client.ts`**: Zulip API wrapper. Handles posting messages, registering event queues, long-polling for replies, and deregistering queues. Uses raw `fetch()` for minimal dependencies.
 - **`src/tool.ts`**: `ask_human` tool definition and execute logic. Wires config and Zulip client, formats messages, handles `thread_id` for follow-ups, and supports `signal.aborted` for cancellation.
 - **`src/prompt.ts`**: System prompt guidance text. Exports `ASK_HUMAN_GUIDANCE` constant with instructions on when to use `ask_human`, how to use it, and when NOT to use it.
+- **`src/queue-registry.ts`**: Queue registry for cleanup on session shutdown. Manages active Zulip event queues that need cleanup when the session ends. Shared between `index.ts` and `src/tool.ts` to avoid circular dependencies.
 
 ### Documentation
 
-- **`PLAN.md`**: Complete design document with architecture, design decisions, implementation order, and Pi extension reference.
+- **`README.md`**: Canonical project documentation with architecture overview, setup instructions, usage patterns, and operational guidance.
 
 ### Testing
 
@@ -87,6 +88,7 @@ When validation fails, the tool returns an error result on first call, explainin
 - Keep Zulip API operations in `src/zulip-client.ts`.
 - Keep tool definition and execute logic in `src/tool.ts`.
 - Keep system prompt guidance in `src/prompt.ts`.
+- Keep queue registry and cleanup logic in `src/queue-registry.ts`.
 - Keep extension entry point and event handlers in `index.ts`.
 
 ### Testing Best Practices
@@ -100,6 +102,7 @@ When validation fails, the tool returns an error result on first call, explainin
 - **Language**: TypeScript
 - **Environment**: Node.js (executed within Pi extension host)
 - **Tooling**: Shell scripts (`.sh`) are used for CI/CD and Git hooks. On Windows, a bash-compatible environment such as Git Bash or WSL is required.
+- **TypeScript/Biome Compatibility**: `tsconfig.json` intentionally sets `noPropertyAccessFromIndexSignature` to `false` because enabling it conflicts with Biome's `useLiteralKeys` rule.
 - **Dependencies**: `@mariozechner/pi-coding-agent` for extension API types. `@sinclair/typebox` is provided by Pi and does not need to be in dependencies.
 
 ### Print Mode Compatibility
