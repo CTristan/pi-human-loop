@@ -156,6 +156,18 @@ describe("config", () => {
     expect(() => loadConfig()).toThrow(/must be a positive integer/);
   });
 
+  it("should use a generic footer for optional config validation errors", () => {
+    process.env.ZULIP_SERVER_URL = "https://zulip.example.com";
+    process.env.ZULIP_BOT_EMAIL = "bot@example.com";
+    process.env.ZULIP_BOT_API_KEY = "test-api-key";
+    process.env.ZULIP_STREAM = "test-stream";
+    process.env.ZULIP_POLL_INTERVAL_MS = "not-a-number";
+
+    expect(() => loadConfig()).toThrow(
+      /Please fix the above configuration errors\./,
+    );
+  });
+
   it("should throw error when ZULIP_POLL_INTERVAL_MS is negative", () => {
     process.env.ZULIP_SERVER_URL = "https://zulip.example.com";
     process.env.ZULIP_BOT_EMAIL = "bot@example.com";

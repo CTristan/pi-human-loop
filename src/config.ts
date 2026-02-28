@@ -113,7 +113,7 @@ export function loadConfig(): Config {
   if (errors.length > 0) {
     const message = errors.map((e) => `  ${e.var}: ${e.message}`).join("\n");
     const error = new Error(
-      `Configuration validation failed:\n${message}\n\nPlease set the required environment variables.`,
+      `Configuration validation failed:\n${message}\n\nPlease fix the above configuration errors.`,
     ) as Error & { configErrors: ConfigError[] };
     error.configErrors = errors;
     throw error;

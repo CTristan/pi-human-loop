@@ -511,6 +511,59 @@ describe("zulip-client", () => {
     vi.useRealTimers();
   });
 
+  it("should abort immediately during network-error retry backoff", async () => {
+    const abortController = new AbortController();
+    vi.useFakeTimers();
+
+    mockFetch.mockRejectedValue(new TypeError("Network error"));
+
+    const pollPromise = client.pollForReply(
+      "queue-123",
+      "999",
+      "bot@example.com",
+      abortController.signal,
+    );
+
+    await Promise.resolve();
+    abortController.abort();
+
+    const reply = await pollPromise;
+
+    expect(reply).toBeNull();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    vi.useRealTimers();
+  });
+
+  it("should abort immediately during HTTP 500 retry backoff", async () => {
+    const abortController = new AbortController();
+    vi.useFakeTimers();
+
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      text: async () => "Server error",
+    });
+
+    const pollPromise = client.pollForReply(
+      "queue-123",
+      "999",
+      "bot@example.com",
+      abortController.signal,
+    );
+
+    await Promise.resolve();
+    abortController.abort();
+
+    const reply = await pollPromise;
+
+    expect(reply).toBeNull();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    vi.useRealTimers();
+  });
+
   it("should deregister queue successfully", async () => {
     mockFetch.mockResolvedValue({
       ok: true,

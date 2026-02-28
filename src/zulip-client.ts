@@ -37,6 +37,35 @@ function getAuthHeader(config: Config): string {
 }
 
 /**
+ * Waits for a delay while reacting immediately to AbortSignal.
+ *
+ * @returns true when the delay elapsed, false when aborted.
+ */
+async function waitWithAbort(
+  delayMs: number,
+  signal: AbortSignal,
+): Promise<boolean> {
+  if (signal.aborted) {
+    return false;
+  }
+
+  return await new Promise<boolean>((resolve) => {
+    const timeoutId = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve(true);
+    }, delayMs);
+
+    const onAbort = () => {
+      clearTimeout(timeoutId);
+      signal.removeEventListener("abort", onAbort);
+      resolve(false);
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
  * Creates a new Zulip client with the given configuration.
  */
 export function createZulipClient(config: Config): ZulipClient {
@@ -167,7 +196,10 @@ export function createZulipClient(config: Config): ZulipClient {
             // Retry on server errors
             if (response.status >= 500 && retryCount < maxRetries) {
               const delay = Math.min(pollIntervalMs * 2 ** retryCount, 60000);
-              await new Promise((resolve) => setTimeout(resolve, delay));
+              const delayElapsed = await waitWithAbort(delay, signal);
+              if (!delayElapsed) {
+                return null;
+              }
               retryCount++;
               continue;
             }
@@ -216,7 +248,10 @@ export function createZulipClient(config: Config): ZulipClient {
           // If it's a fetch error (network issue), retry
           if (error instanceof TypeError && retryCount < maxRetries) {
             const delay = Math.min(pollIntervalMs * 2 ** retryCount, 60000);
-            await new Promise((resolve) => setTimeout(resolve, delay));
+            const delayElapsed = await waitWithAbort(delay, signal);
+            if (!delayElapsed) {
+              return null;
+            }
             retryCount++;
             continue;
           }
