@@ -190,6 +190,10 @@ npm run fix      # Auto-fix linting and formatting issues
 npm run type-check
 ```
 
+### TypeScript/Biome Compatibility
+
+`tsconfig.json` intentionally keeps `noPropertyAccessFromIndexSignature` disabled (`false`) because enabling it conflicts with Biome's `useLiteralKeys` rule.
+
 ## Architecture
 
 ```

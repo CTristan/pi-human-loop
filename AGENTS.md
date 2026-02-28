@@ -21,7 +21,7 @@
 
 ### Documentation
 
-- **`PLAN.md`**: Complete design document with architecture, design decisions, implementation order, and Pi extension reference.
+- **`README.md`**: Canonical project documentation with architecture overview, setup instructions, usage patterns, and operational guidance.
 
 ### Testing
 
@@ -100,6 +100,7 @@ When validation fails, the tool returns an error result on first call, explainin
 - **Language**: TypeScript
 - **Environment**: Node.js (executed within Pi extension host)
 - **Tooling**: Shell scripts (`.sh`) are used for CI/CD and Git hooks. On Windows, a bash-compatible environment such as Git Bash or WSL is required.
+- **TypeScript/Biome Compatibility**: `tsconfig.json` intentionally sets `noPropertyAccessFromIndexSignature` to `false` because enabling it conflicts with Biome's `useLiteralKeys` rule.
 - **Dependencies**: `@mariozechner/pi-coding-agent` for extension API types. `@sinclair/typebox` is provided by Pi and does not need to be in dependencies.
 
 ### Print Mode Compatibility
