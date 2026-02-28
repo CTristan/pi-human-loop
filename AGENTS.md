@@ -22,7 +22,9 @@
 
 ### Documentation
 
-- **`README.md`**: Canonical project documentation with architecture overview, setup instructions, usage patterns, and operational guidance.
+- **`README.md`**: User-facing project overview — elevator pitch, quick start, and how it works. Optimized for cold readers.
+- **`CONTRIBUTING.md`**: Development setup, architecture diagram, error handling reference, multi-turn conversation details, and message format documentation.
+- **`LICENSE`**: MIT license.
 
 ### Testing
 

@@ -2,6 +2,7 @@
   "name": "pi-human-loop",
   "version": "1.0.0",
   "description": "A Pi extension that enables an AI coding agent to start a conversation with a human through Zulip whenever the agent has low confidence in a task.",
+  "license": "MIT",
   "keywords": [
     "pi-package"
   ],
