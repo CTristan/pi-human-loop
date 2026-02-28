@@ -421,16 +421,16 @@ describe("tool", () => {
     );
 
     expect(onUpdate).toHaveBeenCalledWith({
-      type: "progress",
-      content: "Posting question to Zulip...",
+      content: [{ type: "text", text: "Posting question to Zulip..." }],
+      details: { status: "posting" },
     });
     expect(onUpdate).toHaveBeenCalledWith({
-      type: "progress",
-      content: "Waiting for human response...",
+      content: [{ type: "text", text: "Waiting for human response..." }],
+      details: { status: "waiting" },
     });
     expect(onUpdate).toHaveBeenCalledWith({
-      type: "progress",
-      content: "Human response received.",
+      content: [{ type: "text", text: "Human response received." }],
+      details: { status: "received" },
     });
   });
 

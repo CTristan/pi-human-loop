@@ -9,19 +9,24 @@ describe("config", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
-    // Reset to original env before each test
+    // Clear all Zulip env vars so each test starts from a clean state
     for (const key of Object.keys(process.env)) {
       if (key.startsWith("ZULIP_")) {
         delete process.env[key as keyof typeof process.env];
       }
     }
-    // Restore original ZULIP_* vars if they existed
-    for (const key of Object.keys(originalEnv)) {
-      if (key.startsWith("ZULIP_")) {
-        process.env[key as keyof typeof process.env] = originalEnv[
-          key as keyof typeof originalEnv
-        ] as string | undefined;
+  });
+
+  afterAll(() => {
+    // Restore environment after all tests complete
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) {
+        delete process.env[key as keyof typeof process.env];
       }
+    }
+
+    for (const [key, value] of Object.entries(originalEnv)) {
+      process.env[key] = value;
     }
   });
 

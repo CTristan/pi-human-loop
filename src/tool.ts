@@ -5,6 +5,12 @@
  * for follow-ups, and supports `signal.aborted` for cancellation.
  */
 
+import type {
+  AgentToolResult,
+  AgentToolUpdateCallback,
+  ExtensionAPI,
+  ExtensionContext,
+} from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { Config } from "./config.js";
 import { registerQueue, unregisterQueue } from "./queue-registry.js";
@@ -19,6 +25,29 @@ export interface AskHumanParams {
   confidence: number;
   thread_id?: string;
 }
+
+type RegisterToolArgument = Parameters<ExtensionAPI["registerTool"]>[0];
+
+type AskHumanToolDetails = {
+  thread_id?: string;
+  responder?: string;
+  status?: string;
+};
+
+interface AskHumanToolResult extends AgentToolResult<AskHumanToolDetails> {
+  content: Array<{ type: "text"; text: string }>;
+  isError: boolean;
+}
+
+type AskHumanTool = Omit<RegisterToolArgument, "execute"> & {
+  execute(
+    toolCallId: string,
+    params: unknown,
+    signal: AbortSignal | undefined,
+    onUpdate: AgentToolUpdateCallback<AskHumanToolDetails> | undefined,
+    ctx: ExtensionContext,
+  ): Promise<AskHumanToolResult>;
+};
 
 /**
  * Generates a topic name for a new question.
@@ -71,7 +100,7 @@ export function createAskHumanTool(
   config: Config | null,
   zulipClient: ZulipClient | null,
   configError: Error | null = null,
-): any {
+): AskHumanTool {
   return {
     name: "ask_human",
     label: "Ask Human",
@@ -99,15 +128,13 @@ export function createAskHumanTool(
     async execute(
       _toolCallId: string,
       params: unknown,
-      signal: AbortSignal,
-      onUpdate:
-        | ((update: { type: string; content: string }) => void)
-        | undefined,
-      _ctx: unknown,
+      signal: AbortSignal | undefined,
+      onUpdate: AgentToolUpdateCallback<AskHumanToolDetails> | undefined,
+      _ctx: ExtensionContext,
     ) {
       try {
         // Check for abort at start
-        if (signal.aborted) {
+        if (signal?.aborted) {
           return {
             content: [{ type: "text", text: "Human consultation cancelled." }],
             isError: false,
@@ -145,8 +172,8 @@ export function createAskHumanTool(
 
         // Stream progress
         onUpdate?.({
-          type: "progress",
-          content: "Posting question to Zulip...",
+          content: [{ type: "text", text: "Posting question to Zulip..." }],
+          details: { status: "posting" },
         });
 
         await zulipClient.postMessage(config.stream, topic, message);
@@ -173,20 +200,22 @@ export function createAskHumanTool(
 
         try {
           onUpdate?.({
-            type: "progress",
-            content: "Waiting for human response...",
+            content: [{ type: "text", text: "Waiting for human response..." }],
+            details: { status: "waiting" },
           });
+
+          const abortSignal = signal ?? new AbortController().signal;
 
           // Poll for reply (handles abort internally)
           const reply = await zulipClient.pollForReply(
             queueId,
             lastEventId,
             config.botEmail,
-            signal,
+            abortSignal,
           );
 
           // Check if aborted while polling
-          if (signal.aborted || reply === null) {
+          if (signal?.aborted || reply === null) {
             await cleanupQueue();
             return {
               content: [
@@ -201,8 +230,8 @@ export function createAskHumanTool(
           await cleanupQueue();
 
           onUpdate?.({
-            type: "progress",
-            content: "Human response received.",
+            content: [{ type: "text", text: "Human response received." }],
+            details: { status: "received" },
           });
 
           return {
@@ -222,7 +251,7 @@ export function createAskHumanTool(
           await cleanupQueue();
 
           // If aborted, return cancellation
-          if (signal.aborted) {
+          if (signal?.aborted) {
             return {
               content: [
                 { type: "text", text: "Human consultation cancelled." },

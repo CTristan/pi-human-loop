@@ -22,8 +22,9 @@ const createMockZulipClient = (shouldFail = false) => ({
 });
 
 describe("queue-registry", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     // Clear all active queues before each test
+    await cleanupAllQueues();
     vi.clearAllMocks();
   });
 
@@ -48,7 +49,7 @@ describe("queue-registry", () => {
       expect(mockClient2.deregisterQueue).not.toHaveBeenCalled();
     });
 
-    it("should overwrite existing queue with same ID", () => {
+    it("should overwrite existing queue with same ID", async () => {
       const mockClient1 = createMockZulipClient();
       const mockClient2 = createMockZulipClient();
 
@@ -56,25 +57,25 @@ describe("queue-registry", () => {
       registerQueue("queue-1", mockClient2);
 
       // The second client should be used for cleanup
-      cleanupAllQueues().then(() => {
-        expect(mockClient1.deregisterQueue).not.toHaveBeenCalled();
-        expect(mockClient2.deregisterQueue).toHaveBeenCalledTimes(1);
-        expect(mockClient2.deregisterQueue).toHaveBeenCalledWith("queue-1");
-      });
+      await cleanupAllQueues();
+
+      expect(mockClient1.deregisterQueue).not.toHaveBeenCalled();
+      expect(mockClient2.deregisterQueue).toHaveBeenCalledTimes(1);
+      expect(mockClient2.deregisterQueue).toHaveBeenCalledWith("queue-1");
     });
   });
 
   describe("unregisterQueue", () => {
-    it("should remove queue from registry", () => {
+    it("should remove queue from registry", async () => {
       const mockClient = createMockZulipClient();
       registerQueue("queue-1", mockClient);
 
       unregisterQueue("queue-1");
 
       // Queue should be removed, so cleanup won't call it
-      cleanupAllQueues().then(() => {
-        expect(mockClient.deregisterQueue).not.toHaveBeenCalled();
-      });
+      await cleanupAllQueues();
+
+      expect(mockClient.deregisterQueue).not.toHaveBeenCalled();
     });
 
     it("should not throw when unregistering non-existent queue", () => {
@@ -83,7 +84,7 @@ describe("queue-registry", () => {
       }).not.toThrow();
     });
 
-    it("should only remove specified queue when multiple are registered", () => {
+    it("should only remove specified queue when multiple are registered", async () => {
       const mockClient1 = createMockZulipClient();
       const mockClient2 = createMockZulipClient();
 
@@ -93,11 +94,11 @@ describe("queue-registry", () => {
       unregisterQueue("queue-1");
 
       // Only queue-2 should be cleaned up
-      cleanupAllQueues().then(() => {
-        expect(mockClient1.deregisterQueue).not.toHaveBeenCalled();
-        expect(mockClient2.deregisterQueue).toHaveBeenCalledTimes(1);
-        expect(mockClient2.deregisterQueue).toHaveBeenCalledWith("queue-2");
-      });
+      await cleanupAllQueues();
+
+      expect(mockClient1.deregisterQueue).not.toHaveBeenCalled();
+      expect(mockClient2.deregisterQueue).toHaveBeenCalledTimes(1);
+      expect(mockClient2.deregisterQueue).toHaveBeenCalledWith("queue-2");
     });
   });
 
