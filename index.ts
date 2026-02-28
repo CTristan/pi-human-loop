@@ -36,6 +36,8 @@ export default function (pi: ExtensionAPI): void {
 
   // Inject usage guidance into system prompt
   pi.on("before_agent_start", async (event, _ctx) => {
+    void _ctx;
+
     return {
       systemPrompt: `${event.systemPrompt}\n\n${ASK_HUMAN_GUIDANCE}`,
     };
@@ -43,6 +45,9 @@ export default function (pi: ExtensionAPI): void {
 
   // Clean up on session shutdown (runs even if config is invalid)
   pi.on("session_shutdown", async (_event, _ctx) => {
+    void _event;
+    void _ctx;
+
     await cleanupAllQueues();
   });
 }

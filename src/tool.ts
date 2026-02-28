@@ -132,6 +132,9 @@ export function createAskHumanTool(
       onUpdate: AgentToolUpdateCallback<AskHumanToolDetails> | undefined,
       _ctx: ExtensionContext,
     ) {
+      void _toolCallId;
+      void _ctx;
+
       try {
         // Check for abort at start
         if (signal?.aborted) {

@@ -36,7 +36,7 @@ export async function cleanupAllQueues(): Promise<void> {
       try {
         await client.deregisterQueue(queueId);
       } catch (error) {
-        // Silently ignore cleanup errors
+        // Log and ignore cleanup errors
         console.warn(`Failed to cleanup queue ${queueId}:`, error);
       } finally {
         activeQueues.delete(queueId);
