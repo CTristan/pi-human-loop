@@ -59,20 +59,21 @@ That's it. The extension loads automatically, injects guidance into the agent's 
 
 1. The agent encounters something it's unsure about (e.g., a test that keeps failing, an ambiguous requirement)
 2. It calls `ask_human` with its question, relevant context, and a confidence score
-3. The extension posts a formatted message to your Zulip stream:
+3. The extension posts a formatted message to your Zulip stream (using the first 10 lines of provided context):
 
 ```
-🤖 Agent needs help
+🤖 **Agent needs help**
 
-Question: Should I change the test or the code?
+**Question:** Should I change the test or the code?
 
-Context:
+**Context:**
 Error: Expected DecimalError, got ValueError
 File: payments/processor.py:142
+... (up to 10 total context lines)
 
-Confidence: 25/100
+**Confidence:** 25/100
 
-Reply in this topic. The agent is waiting for your response.
+_Reply in this topic. The agent is waiting for your response._
 ```
 
 4. A human replies in the Zulip topic
