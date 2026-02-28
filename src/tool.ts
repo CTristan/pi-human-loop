@@ -6,8 +6,8 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import { registerQueue, unregisterQueue } from "../index.js";
 import type { Config } from "./config.js";
+import { registerQueue, unregisterQueue } from "./queue-registry.js";
 import type { ZulipClient } from "./zulip-client.js";
 
 /**
@@ -68,8 +68,9 @@ _Reply in this topic. The agent is waiting for your response._`;
  * Creates the ask_human tool definition.
  */
 export function createAskHumanTool(
-  config: Config,
-  zulipClient: ZulipClient,
+  config: Config | null,
+  zulipClient: ZulipClient | null,
+  configError: Error | null = null,
 ): any {
   return {
     name: "ask_human",
@@ -110,6 +111,23 @@ export function createAskHumanTool(
           return {
             content: [{ type: "text", text: "Human consultation cancelled." }],
             isError: false,
+            details: {},
+          };
+        }
+
+        // Check for configuration error
+        if (configError || !config || !zulipClient) {
+          const errorMsg = configError
+            ? configError.message
+            : "Configuration not loaded. Please ensure all required environment variables are set: ZULIP_SERVER_URL, ZULIP_BOT_EMAIL, ZULIP_BOT_API_KEY, ZULIP_STREAM";
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Failed to reach human: ${errorMsg}. Proceeding without human input.`,
+              },
+            ],
+            isError: true,
             details: {},
           };
         }

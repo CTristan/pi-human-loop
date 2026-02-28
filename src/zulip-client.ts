@@ -5,7 +5,7 @@
  * and deregistering queues. Uses raw `fetch()` for minimal dependencies.
  */
 
-import type { Config } from "./config.ts";
+import type { Config } from "./config.js";
 
 export interface ZulipMessage {
   id: string;
@@ -42,6 +42,7 @@ function getAuthHeader(config: Config): string {
 export function createZulipClient(config: Config): ZulipClient {
   const baseUrl = config.serverUrl.replace(/\/$/, "");
   const authHeader = getAuthHeader(config);
+  const pollIntervalMs = config.pollIntervalMs;
 
   const client: ZulipClient = {
     /**
@@ -142,7 +143,6 @@ export function createZulipClient(config: Config): ZulipClient {
       let currentLastEventId = lastEventId;
       let retryCount = 0;
       const maxRetries = 10;
-      const baseRetryDelay = 1000;
 
       while (!signal.aborted) {
         try {
@@ -166,7 +166,7 @@ export function createZulipClient(config: Config): ZulipClient {
           if (!response.ok) {
             // Retry on server errors
             if (response.status >= 500 && retryCount < maxRetries) {
-              const delay = Math.min(baseRetryDelay * 2 ** retryCount, 60000);
+              const delay = Math.min(pollIntervalMs * 2 ** retryCount, 60000);
               await new Promise((resolve) => setTimeout(resolve, delay));
               retryCount++;
               continue;
@@ -215,7 +215,7 @@ export function createZulipClient(config: Config): ZulipClient {
 
           // If it's a fetch error (network issue), retry
           if (error instanceof TypeError && retryCount < maxRetries) {
-            const delay = Math.min(baseRetryDelay * 2 ** retryCount, 60000);
+            const delay = Math.min(pollIntervalMs * 2 ** retryCount, 60000);
             await new Promise((resolve) => setTimeout(resolve, delay));
             retryCount++;
             continue;

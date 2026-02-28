@@ -4,7 +4,15 @@
 
 import { createAskHumanTool } from "../src/tool.js";
 import type { ZulipClient } from "../src/zulip-client.js";
-import type { MockedZulipClient } from "./vitest-env.d.ts";
+
+type MockedZulipClient = {
+  postMessage: ReturnType<typeof vi.fn<ZulipClient["postMessage"]>>;
+  registerEventQueue: ReturnType<
+    typeof vi.fn<ZulipClient["registerEventQueue"]>
+  >;
+  pollForReply: ReturnType<typeof vi.fn<ZulipClient["pollForReply"]>>;
+  deregisterQueue: ReturnType<typeof vi.fn<ZulipClient["deregisterQueue"]>>;
+};
 
 describe("tool", () => {
   const mockConfig = {
@@ -468,5 +476,33 @@ describe("tool", () => {
     expect(tool.label).toBe("Ask Human");
     expect(tool.description).toContain("Zulip");
     expect(tool.parameters).toBeDefined();
+  });
+
+  it("should return error when config is missing", async () => {
+    const tool = createAskHumanTool(
+      null,
+      null,
+      new Error(
+        "Configuration validation failed: ZULIP_SERVER_URL is required",
+      ),
+    );
+
+    const result = await tool.execute(
+      "tool-call-123",
+      {
+        question: "What should I do?",
+        context: "Context",
+        confidence: 25,
+      },
+      new AbortController().signal,
+      undefined,
+      {} as any,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content?.[0]?.text).toContain("Failed to reach human");
+    expect(result.content?.[0]?.text).toContain(
+      "Configuration validation failed",
+    );
   });
 });

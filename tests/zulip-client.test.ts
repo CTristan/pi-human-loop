@@ -403,8 +403,8 @@ describe("zulip-client", () => {
     );
 
     // Fast-forward through retries
-    await vi.advanceTimersByTimeAsync(1000); // First retry
-    await vi.advanceTimersByTimeAsync(2000); // Second retry (exponential backoff)
+    await vi.advanceTimersByTimeAsync(5000); // First retry (pollIntervalMs)
+    await vi.advanceTimersByTimeAsync(10000); // Second retry (2 * pollIntervalMs, exponential backoff)
 
     const reply = await pollPromise;
 
@@ -446,7 +446,7 @@ describe("zulip-client", () => {
 
     // Fast-forward through all retries (maxRetries = 10)
     for (let i = 0; i < 10; i++) {
-      await vi.advanceTimersByTimeAsync(Math.min(1000 * 2 ** i, 60000));
+      await vi.advanceTimersByTimeAsync(Math.min(5000 * 2 ** i, 60000));
     }
 
     // Wait for the promise to settle
@@ -497,7 +497,7 @@ describe("zulip-client", () => {
       abortController.signal,
     );
 
-    await vi.advanceTimersByTimeAsync(1000); // Retry delay
+    await vi.advanceTimersByTimeAsync(5000); // Retry delay (pollIntervalMs)
 
     const reply = await pollPromise;
 
