@@ -117,6 +117,8 @@ export function createAskHumanTool(
       confidence: Type.Number({
         description:
           "Your current confidence level (0-100) in resolving this without help",
+        minimum: 0,
+        maximum: 100,
       }),
       thread_id: Type.Optional(
         Type.String({

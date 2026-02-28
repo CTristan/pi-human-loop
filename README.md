@@ -165,7 +165,7 @@ The extension gracefully handles various error scenarios:
 | Zulip server unreachable | Tool returns error; agent proceeds with best guess |
 | Human never replies | Tool blocks indefinitely (by design) until pi process is killed |
 | Multiple humans reply | Returns first non-bot message; subsequent replies visible in Zulip topic |
-| Process killed during poll | Cleans up event queue and returns cancellation result |
+| Cancellation or graceful shutdown during poll | Attempts to clean up Zulip event queue and return a cancellation result (behavior on hard kills such as `SIGKILL` is not guaranteed) |
 
 ## Development
 
