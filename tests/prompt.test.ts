@@ -2,8 +2,7 @@
  * Tests for system prompt guidance.
  */
 
-import { describe, expect, it } from "vitest";
-import { ASK_HUMAN_GUIDANCE } from "../src/prompt.ts";
+import { ASK_HUMAN_GUIDANCE } from "../src/prompt.js";
 
 describe("prompt", () => {
   it("should contain ask_human tool name", () => {

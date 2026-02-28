@@ -2,8 +2,7 @@
  * Tests for Zulip client.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createZulipClient, type ZulipClient } from "../src/zulip-client.ts";
+import { createZulipClient, type ZulipClient } from "../src/zulip-client.js";
 
 describe("zulip-client", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -19,7 +18,7 @@ describe("zulip-client", () => {
   beforeEach(() => {
     // Reset fetch mock
     mockFetch = vi.fn();
-    global.fetch = mockFetch;
+    global.fetch = mockFetch as unknown as typeof global.fetch;
 
     // Create client
     client = createZulipClient(config);
@@ -60,6 +59,9 @@ describe("zulip-client", () => {
     await client.postMessage("my-stream", "my-topic", "my message");
 
     const callArgs = mockFetch.mock.calls[0];
+    if (!callArgs) {
+      throw new Error("Expected fetch to be called");
+    }
     const body = callArgs[1]?.body as string;
     expect(body).toContain("type=stream");
     expect(body).toContain("to=my-stream");
@@ -111,6 +113,9 @@ describe("zulip-client", () => {
     await client.registerEventQueue("my-stream", "my-topic");
 
     const callArgs = mockFetch.mock.calls[0];
+    if (!callArgs) {
+      throw new Error("Expected fetch to be called");
+    }
     const body = callArgs[1]?.body as string;
     expect(body).toContain("event_types=%5B%22message%22%5D"); // ["message"]
     expect(body).toContain(
@@ -433,7 +438,7 @@ describe("zulip-client", () => {
         "bot@example.com",
         abortController.signal,
       )
-      .catch((error) => {
+      .catch((error: unknown) => {
         // Immediately catch to prevent unhandled rejection warning
         caughtError = error as Error;
         return null;
@@ -450,7 +455,9 @@ describe("zulip-client", () => {
     // The promise should have been rejected with the expected error
     expect(caughtError).toBeDefined();
     expect(caughtError).toBeInstanceOf(Error);
-    expect(caughtError?.message).toMatch(/Failed to poll for reply/);
+    expect((caughtError as Error | null)?.message).toMatch(
+      /Failed to poll for reply/,
+    );
 
     vi.useRealTimers();
   });
@@ -564,6 +571,9 @@ describe("zulip-client", () => {
     await client.postMessage("stream", "topic", "content");
 
     const callArgs = mockFetch.mock.calls[0];
+    if (!callArgs) {
+      throw new Error("Expected fetch to be called");
+    }
     const authHeader = callArgs[1]?.headers?.Authorization as string;
 
     expect(authHeader).toMatch(/^Basic [A-Za-z0-9+/]+=*$/);

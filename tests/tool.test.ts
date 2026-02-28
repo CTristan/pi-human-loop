@@ -2,9 +2,9 @@
  * Tests for ask_human tool.
  */
 
-import { describe, expect, it, vi } from "vitest";
-import { createAskHumanTool } from "../src/tool.ts";
-import type { ZulipClient } from "../src/zulip-client.ts";
+import { createAskHumanTool } from "../src/tool.js";
+import type { ZulipClient } from "../src/zulip-client.js";
+import type { MockedZulipClient } from "./vitest-env.d.ts";
 
 describe("tool", () => {
   const mockConfig = {
@@ -15,7 +15,7 @@ describe("tool", () => {
     pollIntervalMs: 5000,
   };
 
-  const mockZulipClient: Partial<ZulipClient> = {
+  const mockZulipClient: MockedZulipClient = {
     postMessage: vi.fn(),
     registerEventQueue: vi.fn(),
     pollForReply: vi.fn(),
@@ -27,19 +27,22 @@ describe("tool", () => {
   });
 
   it("should post message and return reply for new question", async () => {
-    mockZulipClient.postMessage?.mockResolvedValue("123");
-    mockZulipClient.registerEventQueue?.mockResolvedValue({
+    mockZulipClient.postMessage.mockResolvedValue("123");
+    mockZulipClient.registerEventQueue.mockResolvedValue({
       queueId: "queue-123",
       lastEventId: "999",
     });
-    mockZulipClient.pollForReply?.mockResolvedValue({
+    mockZulipClient.pollForReply.mockResolvedValue({
       id: "456",
       sender_email: "human@example.com",
       content: "Here's the answer",
     });
-    mockZulipClient.deregisterQueue?.mockResolvedValue();
+    mockZulipClient.deregisterQueue.mockResolvedValue();
 
-    const tool = createAskHumanTool(mockConfig, mockZulipClient as ZulipClient);
+    const tool = createAskHumanTool(
+      mockConfig,
+      mockZulipClient as unknown as ZulipClient,
+    );
 
     const result = await tool.execute(
       "tool-call-123",
@@ -78,19 +81,22 @@ describe("tool", () => {
   });
 
   it("should post to existing topic for follow-up", async () => {
-    mockZulipClient.postMessage?.mockResolvedValue("123");
-    mockZulipClient.registerEventQueue?.mockResolvedValue({
+    mockZulipClient.postMessage.mockResolvedValue("123");
+    mockZulipClient.registerEventQueue.mockResolvedValue({
       queueId: "queue-123",
       lastEventId: "999",
     });
-    mockZulipClient.pollForReply?.mockResolvedValue({
+    mockZulipClient.pollForReply.mockResolvedValue({
       id: "456",
       sender_email: "human@example.com",
       content: "Follow-up answer",
     });
-    mockZulipClient.deregisterQueue?.mockResolvedValue();
+    mockZulipClient.deregisterQueue.mockResolvedValue();
 
-    const tool = createAskHumanTool(mockConfig, mockZulipClient as ZulipClient);
+    const tool = createAskHumanTool(
+      mockConfig,
+      mockZulipClient as unknown as ZulipClient,
+    );
 
     const result = await tool.execute(
       "tool-call-123",
@@ -115,19 +121,22 @@ describe("tool", () => {
   });
 
   it("should format message correctly for new question", async () => {
-    mockZulipClient.postMessage?.mockResolvedValue("123");
-    mockZulipClient.registerEventQueue?.mockResolvedValue({
+    mockZulipClient.postMessage.mockResolvedValue("123");
+    mockZulipClient.registerEventQueue.mockResolvedValue({
       queueId: "queue-123",
       lastEventId: "999",
     });
-    mockZulipClient.pollForReply?.mockResolvedValue({
+    mockZulipClient.pollForReply.mockResolvedValue({
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
     });
-    mockZulipClient.deregisterQueue?.mockResolvedValue();
+    mockZulipClient.deregisterQueue.mockResolvedValue();
 
-    const tool = createAskHumanTool(mockConfig, mockZulipClient as ZulipClient);
+    const tool = createAskHumanTool(
+      mockConfig,
+      mockZulipClient as unknown as ZulipClient,
+    );
 
     await tool.execute(
       "tool-call-123",
@@ -141,7 +150,7 @@ describe("tool", () => {
       {} as any,
     );
 
-    const postedMessage = mockZulipClient.postMessage?.mock
+    const postedMessage = mockZulipClient.postMessage.mock
       .calls[0]?.[2] as string;
 
     expect(postedMessage).toContain("Agent needs help");
@@ -155,19 +164,22 @@ describe("tool", () => {
   });
 
   it("should format message correctly for follow-up", async () => {
-    mockZulipClient.postMessage?.mockResolvedValue("123");
-    mockZulipClient.registerEventQueue?.mockResolvedValue({
+    mockZulipClient.postMessage.mockResolvedValue("123");
+    mockZulipClient.registerEventQueue.mockResolvedValue({
       queueId: "queue-123",
       lastEventId: "999",
     });
-    mockZulipClient.pollForReply?.mockResolvedValue({
+    mockZulipClient.pollForReply.mockResolvedValue({
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
     });
-    mockZulipClient.deregisterQueue?.mockResolvedValue();
+    mockZulipClient.deregisterQueue.mockResolvedValue();
 
-    const tool = createAskHumanTool(mockConfig, mockZulipClient as ZulipClient);
+    const tool = createAskHumanTool(
+      mockConfig,
+      mockZulipClient as unknown as ZulipClient,
+    );
 
     await tool.execute(
       "tool-call-123",
@@ -182,7 +194,7 @@ describe("tool", () => {
       {} as any,
     );
 
-    const postedMessage = mockZulipClient.postMessage?.mock
+    const postedMessage = mockZulipClient.postMessage.mock
       .calls[0]?.[2] as string;
 
     expect(postedMessage).toContain("Follow-up:");
@@ -192,11 +204,14 @@ describe("tool", () => {
   });
 
   it("should return error on Zulip post failure", async () => {
-    mockZulipClient.postMessage?.mockRejectedValue(
+    mockZulipClient.postMessage.mockRejectedValue(
       new Error("Failed to post message: 500 Internal Server Error"),
     );
 
-    const tool = createAskHumanTool(mockConfig, mockZulipClient as ZulipClient);
+    const tool = createAskHumanTool(
+      mockConfig,
+      mockZulipClient as unknown as ZulipClient,
+    );
 
     const result = await tool.execute(
       "tool-call-123",
@@ -223,12 +238,15 @@ describe("tool", () => {
   });
 
   it("should return error on register queue failure", async () => {
-    mockZulipClient.postMessage?.mockResolvedValue("123");
-    mockZulipClient.registerEventQueue?.mockRejectedValue(
+    mockZulipClient.postMessage.mockResolvedValue("123");
+    mockZulipClient.registerEventQueue.mockRejectedValue(
       new Error("Failed to register queue: 400 Bad Request"),
     );
 
-    const tool = createAskHumanTool(mockConfig, mockZulipClient as ZulipClient);
+    const tool = createAskHumanTool(
+      mockConfig,
+      mockZulipClient as unknown as ZulipClient,
+    );
 
     const result = await tool.execute(
       "tool-call-123",
@@ -247,17 +265,20 @@ describe("tool", () => {
   });
 
   it("should return error on poll failure", async () => {
-    mockZulipClient.postMessage?.mockResolvedValue("123");
-    mockZulipClient.registerEventQueue?.mockResolvedValue({
+    mockZulipClient.postMessage.mockResolvedValue("123");
+    mockZulipClient.registerEventQueue.mockResolvedValue({
       queueId: "queue-123",
       lastEventId: "999",
     });
-    mockZulipClient.pollForReply?.mockRejectedValue(
+    mockZulipClient.pollForReply.mockRejectedValue(
       new Error("Failed to poll for reply: 500 Internal Server Error"),
     );
-    mockZulipClient.deregisterQueue?.mockResolvedValue();
+    mockZulipClient.deregisterQueue.mockResolvedValue();
 
-    const tool = createAskHumanTool(mockConfig, mockZulipClient as ZulipClient);
+    const tool = createAskHumanTool(
+      mockConfig,
+      mockZulipClient as unknown as ZulipClient,
+    );
 
     const result = await tool.execute(
       "tool-call-123",
@@ -279,18 +300,21 @@ describe("tool", () => {
   it("should return cancellation on signal.aborted", async () => {
     const abortController = new AbortController();
 
-    mockZulipClient.postMessage?.mockResolvedValue("123");
-    mockZulipClient.registerEventQueue?.mockResolvedValue({
+    mockZulipClient.postMessage.mockResolvedValue("123");
+    mockZulipClient.registerEventQueue.mockResolvedValue({
       queueId: "queue-123",
       lastEventId: "999",
     });
-    mockZulipClient.pollForReply?.mockImplementation(async () => {
+    mockZulipClient.pollForReply.mockImplementation(async () => {
       abortController.abort();
       return null;
     });
-    mockZulipClient.deregisterQueue?.mockResolvedValue();
+    mockZulipClient.deregisterQueue.mockResolvedValue();
 
-    const tool = createAskHumanTool(mockConfig, mockZulipClient as ZulipClient);
+    const tool = createAskHumanTool(
+      mockConfig,
+      mockZulipClient as unknown as ZulipClient,
+    );
 
     const result = await tool.execute(
       "tool-call-123",
@@ -322,7 +346,10 @@ describe("tool", () => {
     const abortController = new AbortController();
     abortController.abort();
 
-    const tool = createAskHumanTool(mockConfig, mockZulipClient as ZulipClient);
+    const tool = createAskHumanTool(
+      mockConfig,
+      mockZulipClient as unknown as ZulipClient,
+    );
 
     const result = await tool.execute(
       "tool-call-123",
@@ -356,19 +383,22 @@ describe("tool", () => {
       onProgressUpdates.push(update);
     });
 
-    mockZulipClient.postMessage?.mockResolvedValue("123");
-    mockZulipClient.registerEventQueue?.mockResolvedValue({
+    mockZulipClient.postMessage.mockResolvedValue("123");
+    mockZulipClient.registerEventQueue.mockResolvedValue({
       queueId: "queue-123",
       lastEventId: "999",
     });
-    mockZulipClient.pollForReply?.mockResolvedValue({
+    mockZulipClient.pollForReply.mockResolvedValue({
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
     });
-    mockZulipClient.deregisterQueue?.mockResolvedValue();
+    mockZulipClient.deregisterQueue.mockResolvedValue();
 
-    const tool = createAskHumanTool(mockConfig, mockZulipClient as ZulipClient);
+    const tool = createAskHumanTool(
+      mockConfig,
+      mockZulipClient as unknown as ZulipClient,
+    );
 
     await tool.execute(
       "tool-call-123",
@@ -397,17 +427,20 @@ describe("tool", () => {
   });
 
   it("should cleanup queue even when poll throws error", async () => {
-    mockZulipClient.postMessage?.mockResolvedValue("123");
-    mockZulipClient.registerEventQueue?.mockResolvedValue({
+    mockZulipClient.postMessage.mockResolvedValue("123");
+    mockZulipClient.registerEventQueue.mockResolvedValue({
       queueId: "queue-123",
       lastEventId: "999",
     });
-    mockZulipClient.pollForReply?.mockRejectedValue(
+    mockZulipClient.pollForReply.mockRejectedValue(
       new Error("Network error during poll"),
     );
-    mockZulipClient.deregisterQueue?.mockResolvedValue();
+    mockZulipClient.deregisterQueue.mockResolvedValue();
 
-    const tool = createAskHumanTool(mockConfig, mockZulipClient as ZulipClient);
+    const tool = createAskHumanTool(
+      mockConfig,
+      mockZulipClient as unknown as ZulipClient,
+    );
 
     const result = await tool.execute(
       "tool-call-123",
@@ -426,7 +459,10 @@ describe("tool", () => {
   });
 
   it("should have correct tool metadata", () => {
-    const tool = createAskHumanTool(mockConfig, mockZulipClient as ZulipClient);
+    const tool = createAskHumanTool(
+      mockConfig,
+      mockZulipClient as unknown as ZulipClient,
+    );
 
     expect(tool.name).toBe("ask_human");
     expect(tool.label).toBe("Ask Human");

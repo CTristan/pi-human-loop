@@ -6,10 +6,10 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { loadConfig } from "./src/config.ts";
-import { ASK_HUMAN_GUIDANCE } from "./src/prompt.ts";
-import { createAskHumanTool } from "./src/tool.ts";
-import { createZulipClient, type ZulipClient } from "./src/zulip-client.ts";
+import { loadConfig } from "./src/config.js";
+import { ASK_HUMAN_GUIDANCE } from "./src/prompt.js";
+import { createAskHumanTool } from "./src/tool.js";
+import { createZulipClient, type ZulipClient } from "./src/zulip-client.js";
 
 /**
  * Active event queues that need cleanup on shutdown.

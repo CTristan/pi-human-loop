@@ -6,9 +6,9 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import { registerQueue, unregisterQueue } from "../index.ts";
-import type { Config } from "./config.ts";
-import type { ZulipClient } from "./zulip-client.ts";
+import { registerQueue, unregisterQueue } from "../index.js";
+import type { Config } from "./config.js";
+import type { ZulipClient } from "./zulip-client.js";
 
 /**
  * Parameters for the ask_human tool.
@@ -35,7 +35,7 @@ function generateTopic(summary: string, questionNumber?: number): string {
  */
 function extractSummary(question: string): string {
   // Take the first sentence or first ~30 chars
-  const firstSentence = question.split(/[.!?]/)[0].trim();
+  const firstSentence = question.split(/[.!?]/)[0]?.trim() ?? question;
   return firstSentence.length > 30 ? firstSentence.slice(0, 30) : firstSentence;
 }
 
@@ -131,11 +131,7 @@ export function createAskHumanTool(
           content: "Posting question to Zulip...",
         });
 
-        const _messageId = await zulipClient.postMessage(
-          config.stream,
-          topic,
-          message,
-        );
+        await zulipClient.postMessage(config.stream, topic, message);
 
         // Register event queue for polling
         const { queueId, lastEventId } = await zulipClient.registerEventQueue(

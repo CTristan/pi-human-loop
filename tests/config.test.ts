@@ -2,8 +2,7 @@
  * Tests for configuration loading and validation.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
-import { loadConfig } from "../src/config.ts";
+import { loadConfig } from "../src/config.js";
 
 describe("config", () => {
   // Store original env vars

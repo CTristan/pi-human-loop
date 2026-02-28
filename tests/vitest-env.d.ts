@@ -2,24 +2,26 @@
  * Vitest type definitions for test environment.
  */
 
-declare module "vitest" {
-  export interface MockedFunction<T extends (...args: unknown[]) => unknown> {
-    mockResolvedValue: (value: unknown) => MockInstance<T>;
-    mockRejectedValue: (value: unknown) => MockInstance<T>;
-    mockImplementation: (fn: T) => MockInstance<T>;
-  }
-}
+/// <reference types="vitest/globals" />
 
-declare module "../src/zulip-client.ts" {
-  export interface ZulipClient {
-    postMessage: ReturnType<typeof import("vitest").vi.fn>;
-    registerEventQueue: ReturnType<typeof import("vitest").vi.fn>;
-    pollForReply: ReturnType<typeof import("vitest").vi.fn>;
-    deregisterQueue: ReturnType<typeof import("vitest").vi.fn>;
-  }
-}
+import type { ZulipClient } from "../src/zulip-client.js";
 
 declare global {
-  // Global fetch mock
-  var fetch: ReturnType<typeof import("vitest").vi.fn>;
+  // Global fetch mock - typed to accept vi.fn() while providing typed calls array
+  var fetch: unknown & {
+    mock: {
+      calls: Array<[RequestInfo | URL, RequestInit?]>;
+      implementation?: (...args: unknown[]) => unknown;
+    };
+  };
 }
+
+// Export a type for the mocked ZulipClient to use in tests
+export type MockedZulipClient = {
+  postMessage: ReturnType<typeof vi.fn<ZulipClient["postMessage"]>>;
+  registerEventQueue: ReturnType<
+    typeof vi.fn<ZulipClient["registerEventQueue"]>
+  >;
+  pollForReply: ReturnType<typeof vi.fn<ZulipClient["pollForReply"]>>;
+  deregisterQueue: ReturnType<typeof vi.fn<ZulipClient["deregisterQueue"]>>;
+};
