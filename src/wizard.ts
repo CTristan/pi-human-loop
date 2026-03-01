@@ -13,7 +13,6 @@ import {
   loadProjectConfig,
   saveConfigFile,
 } from "./config.js";
-import { detectRepoName } from "./repo.js";
 import { selectWrapped } from "./ui-helpers.js";
 import { createZulipClient } from "./zulip-client.js";
 
@@ -24,7 +23,6 @@ export interface WizardDependencies {
   saveConfigFile: typeof saveConfigFile;
   loadConfig: typeof loadConfig;
   createZulipClient: typeof createZulipClient;
-  detectRepoName: typeof detectRepoName;
   selectWrapped: typeof selectWrapped;
 }
 
@@ -135,7 +133,6 @@ export async function runWizard(
     saveConfigFile: dependencies.saveConfigFile ?? saveConfigFile,
     loadConfig: dependencies.loadConfig ?? loadConfig,
     createZulipClient: dependencies.createZulipClient ?? createZulipClient,
-    detectRepoName: dependencies.detectRepoName ?? detectRepoName,
     selectWrapped: dependencies.selectWrapped ?? selectWrapped,
   };
 

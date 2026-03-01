@@ -282,7 +282,6 @@ describe("wizard", () => {
       loadConfig: (options) =>
         loadConfig({ homeDir, cwd: options?.cwd ?? projectDir }),
       createZulipClient: () => ({ createStream }) as unknown as ZulipClient,
-      detectRepoName: () => "default-repo",
     });
 
     expect(createStream).toHaveBeenCalledWith("my-stream", "my description");

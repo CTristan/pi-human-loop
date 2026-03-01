@@ -220,7 +220,7 @@ export function createAskHumanTool(
       });
       loggerRef.debug = initialLogger.debug;
 
-      // Track if stream existence has been ensured (per-session)
+      // Track if stream existence has been ensured for this tool execution
       let streamEnsured = false;
 
       try {
@@ -327,6 +327,10 @@ export function createAskHumanTool(
             askParams.thread_id == null && topic !== `${repo}:${branch}`,
         });
 
+        // Ensure bot is subscribed to the stream (required for event queue events)
+        await zulipClient.ensureSubscribed(config.stream);
+        loggerRef.debug("Ensured bot subscription", { stream: config.stream });
+
         // Format and post message
         const message = askParams.message;
 
@@ -346,10 +350,6 @@ export function createAskHumanTool(
           topic,
           messageId: questionMessageId,
         });
-
-        // Ensure bot is subscribed to the stream (required for event queue events)
-        await zulipClient.ensureSubscribed(config.stream);
-        loggerRef.debug("Ensured bot subscription", { stream: config.stream });
 
         // Register event queue for polling
         const { queueId, lastEventId } = await zulipClient.registerEventQueue(
@@ -398,7 +398,7 @@ export function createAskHumanTool(
             questionMessageId,
             onQueueReregister: (newQueueId: string) => {
               // Update the mutable reference and queue registry
-              updateQueue(currentQueueId.id, newQueueId, zulipClient);
+              updateQueue(currentQueueId.id, newQueueId);
               currentQueueId.id = newQueueId;
               loggerRef.debug("Queue re-registered", { newQueueId });
             },

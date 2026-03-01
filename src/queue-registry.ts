@@ -35,15 +35,11 @@ export function unregisterQueue(queueId: string): void {
  *
  * @returns true if the old queue ID was found and updated, false otherwise
  */
-export function updateQueue(
-  oldQueueId: string,
-  newQueueId: string,
-  client: QueueClient,
-): boolean {
+export function updateQueue(oldQueueId: string, newQueueId: string): boolean {
   const existing = activeQueues.get(oldQueueId);
   if (existing !== undefined) {
     activeQueues.delete(oldQueueId);
-    activeQueues.set(newQueueId, client);
+    activeQueues.set(newQueueId, existing);
     return true;
   }
   return false;
