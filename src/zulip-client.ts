@@ -235,8 +235,9 @@ export function createZulipClient(config: ZulipClientConfig): ZulipClient {
 
           const data = (await response.json()) as {
             events?: Array<{
-              id: number;
-              message: { id: number; sender_email: string; content: string };
+              id?: number;
+              type?: string;
+              message?: { id: number; sender_email: string; content: string };
             }>;
           };
           const events = data.events ?? [];
@@ -246,18 +247,34 @@ export function createZulipClient(config: ZulipClientConfig): ZulipClient {
             continue;
           }
 
-          // Check each event for a human message
+          // Check each event for a human message.
+          // Zulip may send heartbeat events with no `message` payload.
           for (const event of events) {
-            if (event.message.sender_email !== botEmail) {
+            if (typeof event.id === "number") {
               currentLastEventId = event.id.toString();
+            }
+
+            if (!event.message) {
+              continue;
+            }
+
+            // Validate that required message fields exist
+            const { message } = event;
+            if (
+              typeof message.sender_email !== "string" ||
+              typeof message.id !== "number" ||
+              typeof message.content !== "string"
+            ) {
+              continue;
+            }
+
+            if (message.sender_email !== botEmail) {
               return {
-                id: event.message.id.toString(),
-                sender_email: event.message.sender_email,
-                content: event.message.content,
+                id: message.id.toString(),
+                sender_email: message.sender_email,
+                content: message.content,
               };
             }
-            // Update last event ID even for bot messages
-            currentLastEventId = event.id.toString();
           }
         } catch (error) {
           // If it's an abort error, return null

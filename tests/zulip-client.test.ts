@@ -231,6 +231,54 @@ describe("zulip-client", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
+  it("should ignore heartbeat events and keep polling", async () => {
+    const abortController = new AbortController();
+
+    let callCount = 0;
+    mockFetch.mockImplementation(async () => {
+      callCount++;
+
+      if (callCount === 1) {
+        return {
+          ok: true,
+          json: async () => ({
+            events: [{ type: "heartbeat", id: 0 }],
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({
+          events: [
+            {
+              id: 1,
+              message: {
+                id: 200,
+                sender_email: "human@example.com",
+                content: "Human's reply",
+              },
+            },
+          ],
+        }),
+      };
+    });
+
+    const reply = await client.pollForReply(
+      "queue-123",
+      "-1",
+      "bot@example.com",
+      abortController.signal,
+    );
+
+    expect(reply).toEqual({
+      id: "200",
+      sender_email: "human@example.com",
+      content: "Human's reply",
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
   it("should re-poll on empty response", async () => {
     const abortController = new AbortController();
 

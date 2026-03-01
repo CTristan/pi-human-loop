@@ -590,7 +590,8 @@ describe("tool", () => {
     const oldBotEmail = process.env.ZULIP_BOT_EMAIL;
     const oldApiKey = process.env.ZULIP_BOT_API_KEY;
 
-    process.env.ZULIP_SERVER_URL = "";
+    // Force validation to fail even if ~/.pi/human-loop.json exists locally.
+    process.env.ZULIP_SERVER_URL = "invalid-url";
     process.env.ZULIP_BOT_EMAIL = "";
     process.env.ZULIP_BOT_API_KEY = "";
 
