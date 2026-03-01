@@ -37,6 +37,8 @@ describe("config", () => {
     }
   });
 
+  const tempBaseDirs: string[] = [];
+
   function setupTempDirs() {
     const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-human-loop-"));
     const homeDir = path.join(baseDir, "home");
@@ -44,8 +46,19 @@ describe("config", () => {
     fs.mkdirSync(homeDir, { recursive: true });
     fs.mkdirSync(projectDir, { recursive: true });
     const paths = getConfigPaths({ homeDir, cwd: projectDir });
+    tempBaseDirs.push(baseDir);
     return { baseDir, homeDir, projectDir, paths };
   }
+
+  afterEach(() => {
+    for (const baseDir of tempBaseDirs.splice(0, tempBaseDirs.length)) {
+      try {
+        fs.rmSync(baseDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors in tests
+      }
+    }
+  });
 
   it("should merge project > env > global", () => {
     const { paths, homeDir, projectDir } = setupTempDirs();

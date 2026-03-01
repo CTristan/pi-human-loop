@@ -328,8 +328,17 @@ export function createAskHumanTool(
         });
 
         // Ensure bot is subscribed to the stream (required for event queue events)
-        await zulipClient.ensureSubscribed(config.stream);
-        loggerRef.debug("Ensured bot subscription", { stream: config.stream });
+        // Skip if auto-provisioning already handled subscription
+        if (!config.autoProvision) {
+          await zulipClient.ensureSubscribed(config.stream);
+          loggerRef.debug("Ensured bot subscription", {
+            stream: config.stream,
+          });
+        } else {
+          loggerRef.debug("Subscription already handled by auto-provisioning", {
+            stream: config.stream,
+          });
+        }
 
         // Format and post message
         const message = askParams.message;

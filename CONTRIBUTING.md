@@ -119,7 +119,7 @@ When auto-provisioning is enabled (default: `true`), the tool ensures the config
 
 This happens once per tool invocation, making the extension resilient to stream deletion or subscription changes.
 
-If auto-provisioning is disabled, the tool assumes the stream exists and skips creation. If the stream doesn't exist or the bot isn't subscribed, the tool will fail when posting or registering the event queue. This mode is useful for locked-down Zulip servers where stream creation requires admin approval.
+If auto-provisioning is disabled, the tool skips creating the stream but still verifies that the bot is subscribed to the configured stream. If the stream doesn't exist, the tool will fail when posting or registering the event queue; if the bot isn't subscribed, the subscription check will fail before messages are posted. This mode is useful for locked-down Zulip servers where streams are pre-created and managed by administrators.
 
 ## Error Handling
 

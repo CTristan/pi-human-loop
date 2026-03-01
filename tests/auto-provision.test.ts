@@ -10,14 +10,27 @@ import { autoProvisionStream } from "../src/auto-provision.js";
 import { detectRepoName, parseRepoNameFromRemote } from "../src/repo.js";
 import type { ZulipClient } from "../src/zulip-client.js";
 
+const tempBaseDirs: string[] = [];
+
 function setupTempDirs() {
   const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-human-loop-"));
   const homeDir = path.join(baseDir, "home");
   const projectDir = path.join(baseDir, "project-repo");
   fs.mkdirSync(homeDir, { recursive: true });
   fs.mkdirSync(projectDir, { recursive: true });
+  tempBaseDirs.push(baseDir);
   return { baseDir, homeDir, projectDir };
 }
+
+afterEach(() => {
+  for (const baseDir of tempBaseDirs.splice(0, tempBaseDirs.length)) {
+    try {
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors in tests
+    }
+  }
+});
 
 describe("repo detection", () => {
   it("should parse repo name from HTTPS remote", () => {
@@ -78,10 +91,9 @@ describe("repo detection", () => {
 });
 
 describe("autoProvisionStream", () => {
-  it("should create a stream and ensure subscription", async () => {
-    const mockClient: Pick<ZulipClient, "createStream" | "ensureSubscribed"> = {
+  it("should create a stream", async () => {
+    const mockClient: Pick<ZulipClient, "createStream"> = {
       createStream: vi.fn().mockResolvedValue(undefined),
-      ensureSubscribed: vi.fn().mockResolvedValue(undefined),
     };
 
     const config = {
@@ -102,13 +114,11 @@ describe("autoProvisionStream", () => {
       "pi-human-loop",
       undefined,
     );
-    expect(mockClient.ensureSubscribed).toHaveBeenCalledWith("pi-human-loop");
   });
 
   it("should pass stream description when provided", async () => {
-    const mockClient: Pick<ZulipClient, "createStream" | "ensureSubscribed"> = {
+    const mockClient: Pick<ZulipClient, "createStream"> = {
       createStream: vi.fn().mockResolvedValue(undefined),
-      ensureSubscribed: vi.fn().mockResolvedValue(undefined),
     };
 
     const config = {
@@ -129,7 +139,6 @@ describe("autoProvisionStream", () => {
       "my-stream",
       "Stream for agent questions",
     );
-    expect(mockClient.ensureSubscribed).toHaveBeenCalledWith("my-stream");
   });
 
   it("should throw when auto-provision is disabled", async () => {
@@ -175,9 +184,8 @@ describe("autoProvisionStream", () => {
   });
 
   it("should be idempotent - multiple calls are safe", async () => {
-    const mockClient: Pick<ZulipClient, "createStream" | "ensureSubscribed"> = {
+    const mockClient: Pick<ZulipClient, "createStream"> = {
       createStream: vi.fn().mockResolvedValue(undefined),
-      ensureSubscribed: vi.fn().mockResolvedValue(undefined),
     };
 
     const config = {
@@ -196,6 +204,5 @@ describe("autoProvisionStream", () => {
     await autoProvisionStream(config, mockClient as ZulipClient);
 
     expect(mockClient.createStream).toHaveBeenCalledTimes(3);
-    expect(mockClient.ensureSubscribed).toHaveBeenCalledTimes(3);
   });
 });

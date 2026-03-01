@@ -41,9 +41,7 @@ export async function autoProvisionStream(
   logger?.debug("Ensuring stream exists", { stream: config.stream });
   await zulipClient.createStream(config.stream, config.streamDescription);
 
-  // Ensure bot is subscribed to receive event queue events
-  logger?.debug("Ensuring bot is subscribed", { stream: config.stream });
-  await zulipClient.ensureSubscribed(config.stream);
+  // Note: createStream() already subscribes the bot via /users/me/subscriptions
 
   logger?.debug("Stream ensured successfully", { stream: config.stream });
 }
