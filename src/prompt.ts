@@ -29,7 +29,7 @@ Do NOT use it for:
 
 1. Compose a natural message with your question, relevant context, code snippets, options considered, and reasoning
 2. End your message with your confidence score (out of 100) and a brief explanation of *why* you have that confidence level
-3. Call \`ask_human(message, confidence, thread_id?)\` with your message and confidence
+3. Call \`ask_human({ message, confidence, thread_id? })\` with your message and confidence
 4. The tool will block until a human responds — this is expected
 5. If the response includes a \`thread_id\`, use it in follow-up \`ask_human\` calls to continue the same conversation
 6. Once you have enough information, proceed with your task — do not keep asking unnecessarily

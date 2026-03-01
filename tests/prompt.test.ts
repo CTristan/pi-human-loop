@@ -35,7 +35,7 @@ describe("prompt", () => {
   });
 
   it("should mention the message parameter", () => {
-    expect(ASK_HUMAN_GUIDANCE).toContain("ask_human(message");
+    expect(ASK_HUMAN_GUIDANCE).toContain("ask_human({ message");
   });
 
   it("should instruct to stop on errors", () => {
