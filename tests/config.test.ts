@@ -258,4 +258,172 @@ describe("config", () => {
       /globalConfig.botEmail/,
     );
   });
+
+  it("should parse debug field from global config", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+      debug: true,
+    });
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(true);
+  });
+
+  it("should parse debug field from project config", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+      debug: false,
+    });
+
+    saveConfigFile(paths.projectPath, {
+      debug: true,
+    });
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(true);
+  });
+
+  it("should parse debug field from env var ZULIP_DEBUG=true", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    process.env.ZULIP_DEBUG = "true";
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(true);
+  });
+
+  it("should parse debug field from env var ZULIP_DEBUG=1", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    process.env.ZULIP_DEBUG = "1";
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(true);
+  });
+
+  it("should parse debug field from env var ZULIP_DEBUG=yes", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    process.env.ZULIP_DEBUG = "yes";
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(true);
+  });
+
+  it("should treat truthy env var values other than true/1/yes as false", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    process.env.ZULIP_DEBUG = "enabled";
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(false);
+  });
+
+  it("should default debug to false when not specified", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(false);
+  });
+
+  it("should merge debug with project > env > global precedence", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+      debug: false,
+    });
+
+    saveConfigFile(paths.projectPath, {
+      debug: true,
+    });
+
+    process.env.ZULIP_DEBUG = "false";
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(true);
+  });
+
+  it("should merge debug with env > global precedence when no project config", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+      debug: false,
+    });
+
+    process.env.ZULIP_DEBUG = "true";
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(true);
+  });
+
+  it("should handle boolean debug field in config files", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    saveConfigFile(paths.projectPath, {
+      debug: true,
+    });
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(true);
+  });
 });

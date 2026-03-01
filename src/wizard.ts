@@ -2,6 +2,7 @@
  * Interactive configuration wizard for pi-human-loop.
  */
 
+import path from "node:path";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
   CONFIG_DEFAULTS,
@@ -168,15 +169,19 @@ export async function runWizard(
     projectRaw = {};
   }
 
-  const menuOptions = [
-    "Configure bot credentials",
-    "Configure stream",
-    "Configure auto-provision",
-    "Configure poll interval",
-    "Done",
-  ];
-
   while (true) {
+    const debugValue =
+      typeof globalRaw.debug === "boolean" ? globalRaw.debug : false;
+
+    const menuOptions = [
+      "Configure bot credentials",
+      "Configure stream",
+      "Configure auto-provision",
+      "Configure poll interval",
+      `Configure debug logging (current: ${debugValue ? "enabled" : "disabled"})`,
+      "Done",
+    ];
+
     const action = await deps.selectWrapped(
       ctx,
       "Human loop configuration",
@@ -217,12 +222,16 @@ export async function runWizard(
           ? globalRaw.pollIntervalMs
           : CONFIG_DEFAULTS.pollIntervalMs;
 
+      const debug =
+        typeof globalRaw.debug === "boolean" ? globalRaw.debug : false;
+
       try {
         const client = deps.createZulipClient({
           serverUrl,
           botEmail,
           botApiKey,
           pollIntervalMs: pollInterval,
+          debug,
         });
 
         const profile = await client.validateCredentials();
@@ -390,6 +399,35 @@ export async function runWizard(
         notify(ctx, "info", `Poll interval saved to ${targetPath}.`);
       } catch (error) {
         notify(ctx, "error", `Failed to save poll interval: ${String(error)}`);
+      }
+
+      continue;
+    }
+
+    if (action.startsWith("Configure debug logging")) {
+      const currentValue =
+        typeof globalRaw.debug === "boolean" ? globalRaw.debug : false;
+      const choice = await deps.selectWrapped(
+        ctx,
+        `Debug logging (current: ${currentValue ? "enabled" : "disabled"})`,
+        [currentValue ? "Disable debug logging" : "Enable debug logging"],
+      );
+      if (!choice) {
+        continue;
+      }
+
+      const enabled = choice.startsWith("Enable");
+      globalRaw.debug = enabled;
+
+      try {
+        deps.saveConfigFile(paths.globalPath, globalRaw);
+        notify(
+          ctx,
+          "info",
+          `Debug logging ${enabled ? "enabled" : "disabled"}. Logs will be written to ${path.join(ctx.cwd, ".pi", "human-loop-debug.log")}.`,
+        );
+      } catch (error) {
+        notify(ctx, "error", `Failed to save config: ${String(error)}`);
       }
     }
   }

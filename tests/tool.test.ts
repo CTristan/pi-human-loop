@@ -13,6 +13,7 @@ type MockedZulipClient = {
   >;
   pollForReply: ReturnType<typeof vi.fn<ZulipClient["pollForReply"]>>;
   deregisterQueue: ReturnType<typeof vi.fn<ZulipClient["deregisterQueue"]>>;
+  ensureSubscribed: ReturnType<typeof vi.fn<ZulipClient["ensureSubscribed"]>>;
 };
 
 describe("tool", () => {
@@ -30,6 +31,7 @@ describe("tool", () => {
     registerEventQueue: vi.fn(),
     pollForReply: vi.fn(),
     deregisterQueue: vi.fn(),
+    ensureSubscribed: vi.fn(),
   };
 
   const ctx = { cwd: "/tmp" } as ExtensionContext;

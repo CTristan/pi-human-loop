@@ -14,6 +14,7 @@ export interface ZulipClientConfig {
   botEmail: string;
   botApiKey: string;
   pollIntervalMs: number;
+  debug: boolean;
 }
 
 export interface Config extends ZulipClientConfig {
@@ -44,6 +45,7 @@ interface GlobalConfigValues {
   streamDescription?: string;
   autoProvision?: boolean;
   pollIntervalMs?: number;
+  debug?: boolean;
 }
 
 interface ProjectConfigValues {
@@ -51,6 +53,7 @@ interface ProjectConfigValues {
   streamDescription?: string;
   pollIntervalMs?: number;
   autoProvision?: boolean;
+  debug?: boolean;
 }
 
 interface EnvConfigValues {
@@ -59,6 +62,7 @@ interface EnvConfigValues {
   botApiKey?: string;
   stream?: string;
   pollIntervalMs?: number;
+  debug?: boolean;
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 5000;
@@ -300,6 +304,11 @@ function parseGlobalConfig(
     parsed.pollIntervalMs = pollIntervalMs;
   }
 
+  const debug = parseBooleanField(raw, "debug", errors, "globalConfig.debug");
+  if (debug !== undefined) {
+    parsed.debug = debug;
+  }
+
   return parsed;
 }
 
@@ -349,6 +358,11 @@ function parseProjectConfig(
     parsed.autoProvision = autoProvision;
   }
 
+  const debug = parseBooleanField(raw, "debug", errors, "projectConfig.debug");
+  if (debug !== undefined) {
+    parsed.debug = debug;
+  }
+
   return parsed;
 }
 
@@ -396,6 +410,12 @@ function loadEnvConfig(errors: ConfigError[]): EnvConfigValues {
     }
   }
 
+  if (process.env.ZULIP_DEBUG !== undefined) {
+    // Truthy string check: "true", "1", "yes" are true; anything else is false
+    const value = process.env.ZULIP_DEBUG.trim().toLowerCase();
+    env.debug = value === "true" || value === "1" || value === "yes";
+  }
+
   return env;
 }
 
@@ -430,6 +450,7 @@ export function loadConfig(options?: {
   const streamDescription = merged.streamDescription;
   const autoProvision = merged.autoProvision ?? DEFAULT_AUTO_PROVISION;
   const pollIntervalMs = merged.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+  const debug = merged.debug ?? false;
 
   if (!serverUrl) {
     errors.push({
@@ -487,6 +508,7 @@ export function loadConfig(options?: {
     botApiKey: botApiKey!,
     pollIntervalMs,
     autoProvision,
+    debug,
   };
 
   if (stream !== undefined) {

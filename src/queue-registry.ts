@@ -30,6 +30,26 @@ export function unregisterQueue(queueId: string): void {
 }
 
 /**
+ * Update a queue ID in the registry (e.g., after re-registration).
+ * The old queue ID is unregistered and the new one is registered with the same client.
+ *
+ * @returns true if the old queue ID was found and updated, false otherwise
+ */
+export function updateQueue(
+  oldQueueId: string,
+  newQueueId: string,
+  client: QueueClient,
+): boolean {
+  const existing = activeQueues.get(oldQueueId);
+  if (existing !== undefined) {
+    activeQueues.delete(oldQueueId);
+    activeQueues.set(newQueueId, client);
+    return true;
+  }
+  return false;
+}
+
+/**
  * Clean up all active queues.
  */
 export async function cleanupAllQueues(): Promise<void> {

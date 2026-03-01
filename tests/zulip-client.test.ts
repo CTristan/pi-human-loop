@@ -13,6 +13,7 @@ describe("zulip-client", () => {
     botEmail: "bot@example.com",
     botApiKey: "test-api-key",
     pollIntervalMs: 5000,
+    debug: false,
   };
 
   beforeEach(() => {
@@ -126,6 +127,25 @@ describe("zulip-client", () => {
     expect(body).toContain(
       "narrow=%5B%5B%22stream%22%2C%22my-stream%22%5D%2C%5B%22topic%22%2C%22my-topic%22%5D%5D",
     );
+  });
+
+  it("should register event queue with all_public_streams parameter", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        queue_id: "queue-123",
+        last_event_id: 999,
+      }),
+    });
+
+    await client.registerEventQueue("test-stream", "test-topic");
+
+    const callArgs = mockFetch.mock.calls[0];
+    if (!callArgs) {
+      throw new Error("Expected fetch to be called");
+    }
+    const body = callArgs[1]?.body as string;
+    expect(body).toContain("all_public_streams=true");
   });
 
   it("should throw error when register queue fails", async () => {
@@ -753,6 +773,53 @@ describe("zulip-client", () => {
     );
   });
 
+  it("should ensure subscribed to stream", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      text: async () => "",
+    });
+
+    await expect(client.ensureSubscribed("test-stream")).resolves.not.toThrow();
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://zulip.example.com/api/v1/users/me/subscriptions",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("should log ensureSubscribed call", async () => {
+    const logger = { debug: vi.fn() };
+    const clientWithLogger = createZulipClient({
+      ...config,
+      logger,
+    });
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      text: async () => "",
+    });
+
+    await clientWithLogger.ensureSubscribed("test-stream");
+
+    expect(logger.debug).toHaveBeenCalledWith(
+      "ZulipClient.ensureSubscribed called",
+      { streamName: "test-stream" },
+    );
+  });
+
+  it("should throw when ensureSubscribed fails", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      text: async () => "Stream not found",
+    });
+
+    await expect(client.ensureSubscribed("nonexistent")).rejects.toThrow(
+      /Failed to subscribe to stream: 400/,
+    );
+  });
+
   it("should check if stream exists", async () => {
     mockFetch.mockResolvedValue({
       ok: true,
@@ -800,5 +867,265 @@ describe("zulip-client", () => {
       "https://zulip.example.com/api/v1/messages",
       expect.anything(),
     );
+  });
+
+  describe("BAD_EVENT_QUEUE_ID re-registration", () => {
+    it("should re-register queue on BAD_EVENT_QUEUE_ID error", async () => {
+      vi.useFakeTimers();
+      try {
+        let callCount = 0;
+        mockFetch.mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) {
+            // First poll returns BAD_EVENT_QUEUE_ID
+            return Promise.resolve({
+              ok: false,
+              status: 400,
+              statusText: "Bad Request",
+              text: async () => "BAD_EVENT_QUEUE_ID",
+            });
+          } else if (callCount === 2) {
+            // Re-register queue response
+            return Promise.resolve({
+              ok: true,
+              json: async () => ({
+                queue_id: "new-queue-456",
+                last_event_id: 1000,
+              }),
+            });
+          } else if (callCount === 3) {
+            // Second poll succeeds
+            return Promise.resolve({
+              ok: true,
+              json: async () => ({
+                events: [
+                  {
+                    id: 1001,
+                    type: "message",
+                    message: {
+                      id: 1002,
+                      sender_email: "human@example.com",
+                      content: "Here is the reply",
+                    },
+                  },
+                ],
+              }),
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ events: [] }),
+          });
+        });
+
+        const abortController = new AbortController();
+
+        const pollPromise = client.pollForReply(
+          "old-queue-123",
+          "999",
+          "bot@example.com",
+          abortController.signal,
+          {
+            stream: "test-stream",
+            topic: "test-topic",
+          },
+        );
+
+        await vi.advanceTimersByTimeAsync(0); // Process first poll
+        await vi.advanceTimersByTimeAsync(0); // Process re-register
+        await vi.advanceTimersByTimeAsync(0); // Process second poll
+
+        const result = await pollPromise;
+
+        expect(result).toEqual({
+          id: "1002",
+          sender_email: "human@example.com",
+          content: "Here is the reply",
+        });
+
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.stringContaining("api/v1/register"),
+          expect.anything(),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should give up after max re-registration attempts", async () => {
+      vi.useFakeTimers();
+      try {
+        mockFetch.mockImplementation((url) => {
+          const urlStr = url.toString();
+          if (urlStr.includes("/register")) {
+            // Re-register always succeeds
+            return Promise.resolve({
+              ok: true,
+              json: async () => ({
+                queue_id: `new-queue-${Math.random()}`,
+                last_event_id: 1000,
+              }),
+            });
+          }
+          // Poll always returns BAD_EVENT_QUEUE_ID
+          return Promise.resolve({
+            ok: false,
+            status: 400,
+            statusText: "Bad Request",
+            text: async () => "BAD_EVENT_QUEUE_ID",
+          });
+        });
+
+        const abortController = new AbortController();
+        const logger = { debug: vi.fn() };
+        const clientWithLogger = createZulipClient({
+          ...config,
+          logger,
+        });
+
+        await expect(
+          clientWithLogger.pollForReply(
+            "queue-123",
+            "999",
+            "bot@example.com",
+            abortController.signal,
+            {
+              stream: "test-stream",
+              topic: "test-topic",
+            },
+          ),
+        ).rejects.toThrow(/Failed to poll for reply/);
+
+        // Should have attempted to re-register 3 times (max)
+        const registerCalls = mockFetch.mock.calls.filter((call) =>
+          call[0]?.toString().includes("/register"),
+        );
+        expect(registerCalls.length).toBe(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should not re-register when stream/topic not provided", async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 400,
+        statusText: "Bad Request",
+        text: async () => "BAD_EVENT_QUEUE_ID",
+      });
+
+      await expect(
+        client.pollForReply(
+          "queue-123",
+          "999",
+          "bot@example.com",
+          new AbortController().signal,
+        ),
+      ).rejects.toThrow(/Failed to poll for reply/);
+
+      // Should not call register
+      const registerCalls = mockFetch.mock.calls.filter((call) =>
+        call[0]?.toString().includes("/register"),
+      );
+      expect(registerCalls.length).toBe(0);
+    });
+  });
+
+  describe("message ID filtering", () => {
+    it("should skip messages with id <= questionMessageId", async () => {
+      const logger = { debug: vi.fn() };
+      const clientWithLogger = createZulipClient({
+        ...config,
+        logger,
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          events: [
+            {
+              id: 1001,
+              type: "message",
+              message: {
+                id: 99, // Before question (id 100)
+                sender_email: "human@example.com",
+                content: "Old message",
+              },
+            },
+            {
+              id: 1002,
+              type: "message",
+              message: {
+                id: 100, // The question itself
+                sender_email: "bot@example.com",
+                content: "Question",
+              },
+            },
+            {
+              id: 1003,
+              type: "message",
+              message: {
+                id: 101, // After question
+                sender_email: "human@example.com",
+                content: "Real reply",
+              },
+            },
+          ],
+        }),
+      });
+
+      const result = await clientWithLogger.pollForReply(
+        "queue-123",
+        "999",
+        "bot@example.com",
+        new AbortController().signal,
+        {
+          questionMessageId: "100",
+        },
+      );
+
+      expect(result).toEqual({
+        id: "101",
+        sender_email: "human@example.com",
+        content: "Real reply",
+      });
+
+      expect(logger.debug).toHaveBeenCalledWith("Skipping stale message", {
+        messageId: 99,
+        questionMessageId: "100",
+      });
+    });
+
+    it("should accept all messages when questionMessageId not provided", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          events: [
+            {
+              id: 1001,
+              type: "message",
+              message: {
+                id: 99,
+                sender_email: "human@example.com",
+                content: "Reply",
+              },
+            },
+          ],
+        }),
+      });
+
+      const result = await client.pollForReply(
+        "queue-123",
+        "999",
+        "bot@example.com",
+        new AbortController().signal,
+      );
+
+      expect(result).toEqual({
+        id: "99",
+        sender_email: "human@example.com",
+        content: "Reply",
+      });
+    });
   });
 });

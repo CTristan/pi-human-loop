@@ -93,6 +93,7 @@ describe("autoProvisionStream", () => {
       botApiKey: "test-key",
       pollIntervalMs: 5000,
       autoProvision: true,
+      debug: false,
     };
 
     const streamName = await autoProvisionStream(
@@ -124,6 +125,7 @@ describe("autoProvisionStream", () => {
       pollIntervalMs: 5000,
       autoProvision: true,
       streamDescription: "Auto-provisioned stream",
+      debug: false,
     };
 
     await autoProvisionStream(config, mockClient as ZulipClient, {
@@ -146,6 +148,7 @@ describe("autoProvisionStream", () => {
       botApiKey: "test-key",
       pollIntervalMs: 5000,
       autoProvision: false,
+      debug: false,
     };
 
     await expect(
@@ -167,6 +170,7 @@ describe("autoProvisionStream", () => {
       botApiKey: "test-key",
       pollIntervalMs: 5000,
       autoProvision: true,
+      debug: false,
     };
 
     await expect(
@@ -188,6 +192,7 @@ describe("autoProvisionStream", () => {
       botApiKey: "test-key",
       pollIntervalMs: 5000,
       autoProvision: true,
+      debug: false,
     };
 
     const spy = vi.spyOn(repo, "detectRepoName").mockReturnValueOnce("");

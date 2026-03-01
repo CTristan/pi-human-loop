@@ -6,6 +6,7 @@
  */
 
 import type { ZulipClientConfig } from "./config.js";
+import type { Logger } from "./logger.js";
 
 export interface ZulipMessage {
   id: string;
@@ -36,12 +37,23 @@ export interface ZulipClient {
     lastEventId: string,
     botEmail: string,
     signal: AbortSignal,
+    options?: {
+      stream?: string;
+      topic?: string;
+      onQueueReregister?: (newQueueId: string) => void;
+      questionMessageId?: string;
+    },
   ): Promise<ZulipMessage | null>;
   deregisterQueue(queueId: string): Promise<void>;
   validateCredentials(): Promise<ZulipUserProfile>;
   createStream(name: string, description?: string): Promise<void>;
+  ensureSubscribed(streamName: string): Promise<void>;
   checkStreamExists(name: string): Promise<boolean>;
   getStreamSubscriptions(): Promise<ZulipStreamInfo[]>;
+}
+
+export interface CreateZulipClientOptions extends ZulipClientConfig {
+  logger?: Logger;
 }
 
 /**
@@ -98,10 +110,18 @@ async function requireOk(
 /**
  * Creates a new Zulip client with the given configuration.
  */
-export function createZulipClient(config: ZulipClientConfig): ZulipClient {
-  const baseUrl = config.serverUrl.replace(/\/$/, "");
-  const authHeader = getAuthHeader(config);
-  const pollIntervalMs = config.pollIntervalMs;
+export function createZulipClient(
+  options: CreateZulipClientOptions,
+): ZulipClient {
+  const { serverUrl, botEmail, botApiKey, pollIntervalMs, logger } = options;
+  const baseUrl = serverUrl.replace(/\/$/, "");
+  const authHeader = getAuthHeader({
+    serverUrl,
+    botEmail,
+    botApiKey,
+    pollIntervalMs,
+    debug: false,
+  });
 
   const client: ZulipClient = {
     /**
@@ -115,6 +135,7 @@ export function createZulipClient(config: ZulipClientConfig): ZulipClient {
       topic: string,
       content: string,
     ): Promise<string> {
+      logger?.debug("ZulipClient.postMessage called", { stream, topic });
       const url = `${baseUrl}/api/v1/messages`;
       const response = await fetch(url, {
         method: "POST",
@@ -133,7 +154,9 @@ export function createZulipClient(config: ZulipClientConfig): ZulipClient {
       await requireOk(response, "Failed to post message to Zulip");
 
       const data = (await response.json()) as { id: number };
-      return data.id.toString();
+      const messageId = data.id.toString();
+      logger?.debug("ZulipClient.postMessage success", { messageId });
+      return messageId;
     },
 
     /**
@@ -146,6 +169,7 @@ export function createZulipClient(config: ZulipClientConfig): ZulipClient {
       stream: string,
       topic: string,
     ): Promise<{ queueId: string; lastEventId: string }> {
+      logger?.debug("ZulipClient.registerEventQueue called", { stream, topic });
       const url = `${baseUrl}/api/v1/register`;
       const response = await fetch(url, {
         method: "POST",
@@ -159,6 +183,7 @@ export function createZulipClient(config: ZulipClientConfig): ZulipClient {
             ["stream", stream],
             ["topic", topic],
           ]),
+          all_public_streams: "true",
         }).toString(),
       });
 
@@ -168,10 +193,12 @@ export function createZulipClient(config: ZulipClientConfig): ZulipClient {
         queue_id: string;
         last_event_id: number;
       };
-      return {
+      const result = {
         queueId: data.queue_id,
         lastEventId: data.last_event_id.toString(),
       };
+      logger?.debug("ZulipClient.registerEventQueue success", result);
+      return result;
     },
 
     /**
@@ -188,15 +215,29 @@ export function createZulipClient(config: ZulipClientConfig): ZulipClient {
       lastEventId: string,
       botEmail: string,
       signal: AbortSignal,
+      options?: {
+        stream?: string;
+        topic?: string;
+        onQueueReregister?: (newQueueId: string) => void;
+        questionMessageId?: string;
+      },
     ): Promise<ZulipMessage | null> {
+      logger?.debug("ZulipClient.pollForReply called", {
+        queueId,
+        lastEventId,
+        botEmail,
+      });
+      let currentQueueId = queueId;
       let currentLastEventId = lastEventId;
       let retryCount = 0;
       const maxRetries = 10;
+      const maxReregisterAttempts = 3;
+      let reregisterAttempts = 0;
 
       while (!signal.aborted) {
         try {
           const url = new URL(`${baseUrl}/api/v1/events`);
-          url.searchParams.set("queue_id", queueId);
+          url.searchParams.set("queue_id", currentQueueId);
           url.searchParams.set("last_event_id", currentLastEventId);
           url.searchParams.set("dont_block", "false"); // Enable long-polling
 
@@ -213,6 +254,48 @@ export function createZulipClient(config: ZulipClientConfig): ZulipClient {
           }
 
           if (!response.ok) {
+            // Handle BAD_EVENT_QUEUE_ID by re-registering the queue
+            if (
+              response.status === 400 &&
+              reregisterAttempts < maxReregisterAttempts &&
+              options?.stream &&
+              options?.topic
+            ) {
+              const text = await response.text();
+              if (text.includes("BAD_EVENT_QUEUE_ID")) {
+                logger?.debug(
+                  "BAD_EVENT_QUEUE_ID detected, re-registering queue",
+                  {
+                    oldQueueId: currentQueueId,
+                    attempt: reregisterAttempts + 1,
+                  },
+                );
+
+                try {
+                  const newQueue = await client.registerEventQueue(
+                    options.stream,
+                    options.topic,
+                  );
+                  currentQueueId = newQueue.queueId;
+                  currentLastEventId = newQueue.lastEventId;
+                  reregisterAttempts++;
+                  options.onQueueReregister?.(currentQueueId);
+                  logger?.debug("Queue re-registered", {
+                    newQueueId: currentQueueId,
+                    newLastEventId: currentLastEventId,
+                  });
+                  continue;
+                } catch (reregError) {
+                  logger?.debug("Failed to re-register queue", {
+                    error:
+                      reregError instanceof Error
+                        ? reregError.message
+                        : String(reregError),
+                  });
+                }
+              }
+            }
+
             // Retry on server errors
             if (response.status >= 500 && retryCount < maxRetries) {
               const delay = Math.min(pollIntervalMs * 2 ** retryCount, 60000);
@@ -242,6 +325,13 @@ export function createZulipClient(config: ZulipClientConfig): ZulipClient {
           };
           const events = data.events ?? [];
 
+          if (events.length > 0) {
+            logger?.debug("ZulipClient.pollForReply events received", {
+              count: events.length,
+              eventTypes: events.map((e) => e.type).filter(Boolean),
+            });
+          }
+
           if (events.length === 0) {
             // Long-poll timeout, continue polling
             continue;
@@ -268,12 +358,29 @@ export function createZulipClient(config: ZulipClientConfig): ZulipClient {
               continue;
             }
 
+            // Skip stale messages (from before the bot's question)
+            if (options?.questionMessageId) {
+              const questionId = parseInt(options.questionMessageId, 10);
+              if (message.id <= questionId) {
+                logger?.debug("Skipping stale message", {
+                  messageId: message.id,
+                  questionMessageId: options.questionMessageId,
+                });
+                continue;
+              }
+            }
+
             if (message.sender_email !== botEmail) {
-              return {
+              const reply = {
                 id: message.id.toString(),
                 sender_email: message.sender_email,
                 content: message.content,
               };
+              logger?.debug("ZulipClient.pollForReply reply received", {
+                sender: reply.sender_email,
+                messageId: reply.id,
+              });
+              return reply;
             }
           }
         } catch (error) {
@@ -299,6 +406,7 @@ export function createZulipClient(config: ZulipClientConfig): ZulipClient {
       }
 
       // Aborted
+      logger?.debug("ZulipClient.pollForReply aborted");
       return null;
     },
 
@@ -308,6 +416,7 @@ export function createZulipClient(config: ZulipClientConfig): ZulipClient {
      * Best-effort cleanup - errors are logged but not thrown.
      */
     async deregisterQueue(queueId: string): Promise<void> {
+      logger?.debug("ZulipClient.deregisterQueue called", { queueId });
       try {
         const url = `${baseUrl}/api/v1/events`;
         const response = await fetch(url, {
@@ -362,6 +471,7 @@ export function createZulipClient(config: ZulipClientConfig): ZulipClient {
      * Creates or subscribes to a stream. This is idempotent if the stream exists.
      */
     async createStream(name: string, description?: string): Promise<void> {
+      logger?.debug("ZulipClient.createStream called", { name, description });
       const url = `${baseUrl}/api/v1/users/me/subscriptions`;
       const subscriptions = [{ name, ...(description ? { description } : {}) }];
 
@@ -377,6 +487,29 @@ export function createZulipClient(config: ZulipClientConfig): ZulipClient {
       });
 
       await requireOk(response, "Failed to create or subscribe to stream");
+    },
+
+    /**
+     * Ensures the bot is subscribed to a stream.
+     * This is idempotent - safe to call if already subscribed.
+     */
+    async ensureSubscribed(streamName: string): Promise<void> {
+      logger?.debug("ZulipClient.ensureSubscribed called", { streamName });
+      const url = `${baseUrl}/api/v1/users/me/subscriptions`;
+      const subscriptions = [{ name: streamName }];
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: authHeader,
+        },
+        body: new URLSearchParams({
+          subscriptions: JSON.stringify(subscriptions),
+        }).toString(),
+      });
+
+      await requireOk(response, "Failed to subscribe to stream");
     },
 
     /**

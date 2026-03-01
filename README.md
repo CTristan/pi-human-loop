@@ -58,6 +58,7 @@ export ZULIP_SERVER_URL="https://your-zulip-server.com"
 export ZULIP_BOT_EMAIL="pi-agent-bot@your-domain.com"
 export ZULIP_BOT_API_KEY="your-api-key-here"
 export ZULIP_STREAM="my-project"
+export ZULIP_DEBUG=true
 ```
 
 | Variable | Required | Description |
@@ -67,6 +68,7 @@ export ZULIP_STREAM="my-project"
 | `ZULIP_BOT_API_KEY` | Yes | Bot user API key |
 | `ZULIP_STREAM` | No | Stream name for this repo (auto-provision if omitted) |
 | `ZULIP_POLL_INTERVAL_MS` | No | Fallback poll interval in ms (default: `5000`) |
+| `ZULIP_DEBUG` | No | Enable debug logging to `.pi/human-loop-debug.log` (default: `false`) |
 
 Config files are merged in this order: project `.pi/human-loop.json` → env vars → global `~/.pi/human-loop.json`.
 

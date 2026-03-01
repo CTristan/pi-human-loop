@@ -15,11 +15,12 @@
 ### Source Modules (`src/`)
 
 - **`src/config.ts`**: Configuration loading, validation, and persistence. Merges global JSON config, env vars, and project JSON config. Exposes save helpers for the wizard.
-- **`src/zulip-client.ts`**: Zulip API wrapper. Handles posting messages, registering event queues, long-polling for replies, stream creation, and deregistering queues. Uses raw `fetch()` for minimal dependencies.
+- **`src/logger.ts`**: Debug logging module with zero-overhead when disabled. Writes JSON-formatted logs to `.pi/human-loop-debug.log` for troubleshooting.
+- **`src/zulip-client.ts`**: Zulip API wrapper. Handles posting messages, registering event queues, long-polling for replies, stream creation, ensuring subscriptions, and deregistering queues. Uses raw `fetch()` for minimal dependencies.
 - **`src/tool.ts`**: `ask_human` tool definition and execute logic. Loads config per call, auto-provisions streams when needed, formats messages, handles `thread_id` for follow-ups, and supports `signal.aborted` for cancellation.
 - **`src/auto-provision.ts`**: Auto-provisions a stream for new repos and persists it to project config.
 - **`src/repo.ts`**: Detects repo name from git remote or working directory.
-- **`src/wizard.ts`**: Interactive `/human-loop-config` wizard (UI-only) for configuring credentials, streams, poll interval, and auto-provisioning.
+- **`src/wizard.ts`**: Interactive `/human-loop-config` wizard (UI-only) for configuring credentials, streams, poll interval, auto-provisioning, and debug logging.
 - **`src/ui-helpers.ts`**: TUI helpers for the wizard (custom select list wrapper).
 - **`src/prompt.ts`**: System prompt guidance text. Exports `ASK_HUMAN_GUIDANCE` with instructions on when to use `ask_human` and how to handle failures.
 - **`src/queue-registry.ts`**: Queue registry for cleanup on session shutdown. Manages active Zulip event queues that need cleanup when the session ends. Shared between `index.ts` and `src/tool.ts` to avoid circular dependencies.
@@ -79,7 +80,8 @@ Configuration is loaded from three sources, merged in this order:
   "botEmail": "bot@example.com",
   "botApiKey": "your-api-key-here",
   "autoProvision": true,
-  "pollIntervalMs": 5000
+  "pollIntervalMs": 5000,
+  "debug": false
 }
 ```
 
@@ -101,6 +103,7 @@ ZULIP_BOT_EMAIL=bot@example.com
 ZULIP_BOT_API_KEY=your-api-key-here
 ZULIP_STREAM=fix-die-repeat
 ZULIP_POLL_INTERVAL_MS=5000  # optional
+ZULIP_DEBUG=true             # optional, enables debug logging
 ```
 
 ### Validation Rules
@@ -108,8 +111,28 @@ ZULIP_POLL_INTERVAL_MS=5000  # optional
 - Required fields: server URL, bot email, bot API key (can come from any source).
 - `serverUrl` must be a valid URL (starts with `http://` or `https://`).
 - `pollIntervalMs` must be a positive integer if provided.
+- `debug` is a boolean (default: `false`). When enabled, logs are written to `.pi/human-loop-debug.log`.
 
 When validation fails, the tool returns an error result on first call, explaining the configuration errors.
+
+### Subscription Requirement
+
+The bot must be subscribed to a stream to receive event queue events from that stream. Event queue narrows filter messages based on the user's channel subscriptions. If the bot is not subscribed to a stream, the narrow produces no message events — only heartbeats.
+
+The extension automatically ensures the bot is subscribed to the stream by calling `ensureSubscribed()` before registering an event queue. This is done for all streams (both auto-provisioned and manually configured).
+
+### BAD_EVENT_QUEUE_ID Re-registration
+
+Zulip garbage-collects event queues after approximately 10 minutes of inactivity. When an event queue is garbage-collected, the `/api/v1/events` endpoint returns a `BAD_EVENT_QUEUE_ID` error.
+
+The extension handles this error by:
+1. Detecting the `BAD_EVENT_QUEUE_ID` error in the poll response
+2. Re-registering the event queue with the same stream and topic
+3. Continuing to poll with the new queue ID
+4. Logging the re-registration event for debugging
+5. Limiting re-registration attempts to 3 to avoid infinite loops
+
+This ensures that long-running conversations can continue even if the initial event queue is garbage-collected while waiting for a human reply.
 
 ## Development Guidelines
 

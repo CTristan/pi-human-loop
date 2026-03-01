@@ -4,21 +4,27 @@
 
 import type { Config } from "./config.js";
 import { getConfigPaths, loadProjectConfig, saveConfigFile } from "./config.js";
+import type { Logger } from "./logger.js";
 import { detectRepoName } from "./repo.js";
 import type { ZulipClient } from "./zulip-client.js";
 
 export async function autoProvisionStream(
   config: Config,
   zulipClient: ZulipClient,
-  options?: { cwd?: string },
+  options?: { cwd?: string; logger?: Logger },
 ): Promise<string> {
+  const { cwd = process.cwd(), logger } = options ?? {};
+
+  logger?.debug("autoProvisionStream called", {
+    autoProvision: config.autoProvision,
+  });
+
   if (!config.autoProvision) {
     throw new Error(
       "No Zulip stream configured and auto-provisioning is disabled. Run /human-loop-config or set a stream name.",
     );
   }
 
-  const cwd = options?.cwd ?? process.cwd();
   const streamName = detectRepoName({ cwd });
 
   if (!streamName) {
@@ -27,6 +33,7 @@ export async function autoProvisionStream(
     );
   }
 
+  logger?.debug("Auto-provisioning stream", { streamName, cwd });
   await zulipClient.createStream(streamName, config.streamDescription);
 
   const paths = getConfigPaths({ cwd });
@@ -38,5 +45,6 @@ export async function autoProvisionStream(
   }
 
   saveConfigFile(paths.projectPath, projectConfig);
+  logger?.debug("Stream config saved", { streamPath: paths.projectPath });
   return streamName;
 }
