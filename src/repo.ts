@@ -1,5 +1,5 @@
 /**
- * Repository detection helpers for auto-provisioning.
+ * Repository detection helpers for auto-provisioning and topic selection.
  */
 
 import { execSync } from "node:child_process";
@@ -61,4 +61,31 @@ export function detectRepoName(options?: {
   }
 
   return path.basename(cwd);
+}
+
+export function detectBranchName(options?: {
+  cwd?: string;
+  execGit?: (cwd: string) => string | null;
+}): string {
+  const cwd = options?.cwd ?? process.cwd();
+  const execGit =
+    options?.execGit ??
+    ((workingDir: string) => {
+      try {
+        const output = execSync("git rev-parse --abbrev-ref HEAD", {
+          cwd: workingDir,
+          stdio: ["ignore", "pipe", "ignore"],
+        });
+        return output.toString().trim();
+      } catch {
+        return null;
+      }
+    });
+
+  const branch = execGit(cwd)?.trim();
+  if (!branch || branch === "HEAD") {
+    return "Detached HEAD";
+  }
+
+  return branch;
 }

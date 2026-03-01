@@ -37,7 +37,7 @@ For project internals and code organization, see [AGENTS.md](./AGENTS.md).
 ┌─────────────────────────────────────────────────┐
 │  Zulip Server                                   │
 │  - One stream per repo                          │
-│  - One topic per agent question/conversation    │
+│  - One topic per git branch (by default)        │
 │  - Long-poll API for efficient waiting          │
 └─────────────────────────────────────────────────┘
 ```
@@ -134,18 +134,18 @@ The extension surfaces errors loudly to avoid silent failures:
 
 ## Multi-turn Conversations
 
-The `ask_human` tool supports follow-up questions within the same Zulip topic. The first call creates a new topic and returns a `thread_id`. Subsequent calls can pass that `thread_id` to continue the conversation:
+The `ask_human` tool supports follow-up questions within the same Zulip topic. The first call uses the current git branch name as the default topic and returns that value as `thread_id`. Subsequent calls can pass that `thread_id` to continue the conversation:
 
 ```typescript
-// First call — creates new topic
+// First call — uses the current branch as topic
 const result1 = await ask_human({
   question: "Should I use approach A or B?",
   context: "Context about both approaches...",
   confidence: 30,
 });
-// result1.details.thread_id = "Agent Q #42 — payment processing"
+// result1.details.thread_id = "feature/add-payments"
 
-// Follow-up — continues in same topic
+// Follow-up — continues in the same topic
 const result2 = await ask_human({
   question: "Here's the code for approach A. Does this look right?",
   context: "def process(): ...",
@@ -156,7 +156,7 @@ const result2 = await ask_human({
 
 ## Message Format
 
-### Initial Question (new topic)
+### Initial Question (branch topic by default)
 
 ```
 🤖 **Agent needs help**

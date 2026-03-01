@@ -41,7 +41,6 @@ export interface ZulipClient {
     options?: {
       stream?: string;
       topic?: string;
-      topicId?: string;
       onQueueReregister?: (newQueueId: string) => void;
       questionMessageId?: string;
     },
@@ -226,7 +225,6 @@ export function createZulipClient(
       options?: {
         stream?: string;
         topic?: string;
-        topicId?: string;
         onQueueReregister?: (newQueueId: string) => void;
         questionMessageId?: string;
       },
@@ -392,18 +390,6 @@ export function createZulipClient(
             }
 
             if (message.sender_email !== botEmail) {
-              // Safety-net guard: verify this message topic contains expected topic ID
-              if (
-                options?.topicId &&
-                !message.subject.includes(options.topicId)
-              ) {
-                logger?.debug("Skipping message: topic ID mismatch", {
-                  expectedTopicId: options.topicId,
-                  actualSubject: message.subject,
-                });
-                continue;
-              }
-
               const reply = {
                 id: message.id.toString(),
                 sender_email: message.sender_email,

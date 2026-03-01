@@ -19,7 +19,7 @@
 - **`src/zulip-client.ts`**: Zulip API wrapper. Handles posting messages, registering event queues, long-polling for replies, stream creation, ensuring subscriptions, and deregistering queues. Uses raw `fetch()` for minimal dependencies.
 - **`src/tool.ts`**: `ask_human` tool definition and execute logic. Loads config per call, auto-provisions streams when needed, formats messages, handles `thread_id` for follow-ups, and supports `signal.aborted` for cancellation.
 - **`src/auto-provision.ts`**: Auto-provisions a stream for new repos and persists it to project config.
-- **`src/repo.ts`**: Detects repo name from git remote or working directory.
+- **`src/repo.ts`**: Detects repo name from git remote or working directory, and detects the current git branch name for default Zulip topic selection.
 - **`src/wizard.ts`**: Interactive `/human-loop-config` wizard (UI-only) for configuring credentials, streams, poll interval, auto-provisioning, and debug logging.
 - **`src/ui-helpers.ts`**: TUI helpers for the wizard (custom select list wrapper).
 - **`src/prompt.ts`**: System prompt guidance text. Exports `ASK_HUMAN_GUIDANCE` with instructions on when to use `ask_human` and how to handle failures.
@@ -49,7 +49,7 @@
 2. **System Prompt Injection**: Before each agent turn, `before_agent_start` appends `ASK_HUMAN_GUIDANCE` to the system prompt.
 3. **Tool Call**: The LLM calls `ask_human(question, context, confidence, thread_id?)` when it needs human guidance.
 4. **Auto-Provision (if needed)**: If no stream is configured and auto-provisioning is enabled, the tool creates a stream named after the repo and writes `.pi/human-loop.json`.
-5. **Zulip Post**: The tool posts a formatted message to the configured Zulip stream.
+5. **Zulip Post**: The tool posts a formatted message to the configured Zulip stream using the current branch name as the default topic (or `thread_id` for follow-ups).
 6. **Long-poll**: The tool registers an event queue and long-polls Zulip for a reply.
 7. **Reply Received**: When a human replies, the tool returns the reply text + `thread_id` + responder to the LLM.
 8. **Cleanup**: On successful reply, signal abort, or session shutdown, the tool deregisters the event queue.
@@ -59,12 +59,12 @@
 | Concept | Zulip Equivalent | Example |
 |---------|-----------------|---------|
 | Repo channel | **Stream** | `fix-die-repeat` |
-| Agent question + conversation | **Topic** within stream | `Agent Q #3 — payment processing` |
+| Agent question + conversation | **Topic** within stream (branch-based by default) | `feature/add-payments` |
 | Agent's question/follow-up | Bot message in topic | Posted by the Zulip bot user |
 | Human's reply | Human message in same topic | Any non-bot message |
 | Multi-turn | Multiple messages in topic | Tool calls reference topic via `thread_id` |
 
-> **Topic length limit:** Zulip topics are limited to **60 Unicode code points**. Topic generation in `src/tool.ts` must respect `ZULIP_MAX_TOPIC_LENGTH` to avoid Zulip-side truncation that can break exact topic narrows.
+> **Topic length limit:** Zulip topics are limited to **60 Unicode code points**. Branch-based topic selection in `src/tool.ts` must respect `ZULIP_MAX_TOPIC_LENGTH` to avoid Zulip-side truncation that can break exact topic narrows.
 
 ## Configuration Schema
 

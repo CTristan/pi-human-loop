@@ -11,7 +11,7 @@ pi-human-loop is a [Pi](https://github.com/badlogic/pi-mono) extension that give
 - **`ask_human` tool** — the agent calls it when it needs guidance, with its question, context, and confidence level
 - **Interactive config wizard** — `/human-loop-config` walks you through credentials and stream setup
 - **Auto-provisioned streams** — new repos get a stream created automatically
-- **Zulip integration** — questions appear as topics in a Zulip stream; humans reply in-thread
+- **Zulip integration** — questions appear as topics in a Zulip stream (default topic = current git branch); humans reply in-thread
 - **Multi-turn conversations** — follow-up questions stay in the same Zulip topic
 - **Efficient polling** — uses Zulip's long-poll API (~90s server-side blocks) for minimal resource usage
 - **Loud failure behavior** — if Zulip is unreachable, the agent stops and reports the error
@@ -76,7 +76,7 @@ Config files are merged in this order: project `.pi/human-loop.json` → env var
 
 1. The agent encounters something it's unsure about (e.g., a test that keeps failing, an ambiguous requirement)
 2. It calls `ask_human` with its question, relevant context, and a confidence score
-3. The extension posts a formatted message to your Zulip stream (using the first 10 lines of provided context):
+3. The extension posts a formatted message to your Zulip stream (topic defaults to current git branch; first 10 lines of context are included):
 
 ```
 🤖 **Agent needs help**

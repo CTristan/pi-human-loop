@@ -3,7 +3,7 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { createAskHumanTool } from "../src/tool.js";
+import { branchToTopic, createAskHumanTool } from "../src/tool.js";
 import type { ZulipClient } from "../src/zulip-client.js";
 
 type MockedZulipClient = {
@@ -15,6 +15,33 @@ type MockedZulipClient = {
   deregisterQueue: ReturnType<typeof vi.fn<ZulipClient["deregisterQueue"]>>;
   ensureSubscribed: ReturnType<typeof vi.fn<ZulipClient["ensureSubscribed"]>>;
 };
+
+describe("branchToTopic", () => {
+  it("returns short branch names unchanged", () => {
+    expect(branchToTopic("feature/add-payments")).toBe("feature/add-payments");
+  });
+
+  it("returns exactly 60 code points unchanged", () => {
+    const branch = "a".repeat(60);
+    expect(branchToTopic(branch)).toBe(branch);
+  });
+
+  it("truncates branch names over 60 code points with ellipsis", () => {
+    const branch = `feature/${"x".repeat(80)}`;
+    const topic = branchToTopic(branch);
+
+    expect(topic.endsWith("...")).toBe(true);
+    expect([...topic]).toHaveLength(60);
+  });
+
+  it("counts Unicode code points correctly", () => {
+    const branch = "🧪".repeat(61);
+    const topic = branchToTopic(branch);
+
+    expect(topic.endsWith("...")).toBe(true);
+    expect([...topic]).toHaveLength(60);
+  });
+});
 
 describe("tool", () => {
   const baseConfig = {
@@ -64,14 +91,23 @@ describe("tool", () => {
     const autoProvisionStream = vi
       .fn()
       .mockResolvedValue(config.stream ?? "auto-stream");
+    const detectBranchName = vi.fn().mockReturnValue("feature/add-payments");
 
     const tool = createAskHumanTool({
       loadConfig,
       createZulipClient,
       autoProvisionStream,
+      detectBranchName,
     });
 
-    return { tool, loadConfig, createZulipClient, autoProvisionStream, config };
+    return {
+      tool,
+      loadConfig,
+      createZulipClient,
+      autoProvisionStream,
+      detectBranchName,
+      config,
+    };
   }
 
   it("should post message and return reply for new question", async () => {
@@ -84,11 +120,11 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Here's the answer",
-      subject: "Agent Q #abc123 — test",
+      subject: "feature/add-payments",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
-    const { tool } = buildTool();
+    const { tool, detectBranchName } = buildTool();
 
     const result = await tool.execute(
       "tool-call-123",
@@ -111,28 +147,30 @@ describe("tool", () => {
       ],
       isError: false,
       details: {
-        thread_id: expect.stringContaining("Agent Q #"),
+        thread_id: "feature/add-payments",
         responder: "human@example.com",
       },
     });
 
+    expect(detectBranchName).toHaveBeenCalledWith({ cwd: "/tmp" });
     expect(mockZulipClient.postMessage).toHaveBeenCalledWith(
       "test-stream",
-      expect.stringContaining("Agent Q #"),
+      "feature/add-payments",
       expect.stringContaining("What should I do?"),
     );
     expect(mockZulipClient.registerEventQueue).toHaveBeenCalled();
     expect(mockZulipClient.pollForReply).toHaveBeenCalled();
 
-    const postedTopic = mockZulipClient.postMessage.mock
-      .calls[0]?.[1] as string;
-    const topicIdMatch = postedTopic.match(/Agent Q #([a-z0-9]+)/i);
-    expect(topicIdMatch?.[1]).toBeDefined();
-
     const pollOptions = mockZulipClient.pollForReply.mock.calls[0]?.[4] as {
-      topicId?: string;
+      questionMessageId?: string;
+      stream?: string;
+      topic?: string;
     };
-    expect(pollOptions.topicId).toBe(topicIdMatch?.[1]);
+    expect(pollOptions).toMatchObject({
+      stream: "test-stream",
+      topic: "feature/add-payments",
+      questionMessageId: "123",
+    });
 
     expect(mockZulipClient.deregisterQueue).toHaveBeenCalledWith("queue-123");
   });
@@ -147,11 +185,11 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Follow-up answer",
-      subject: "Agent Q #42 — payment processing",
+      subject: "feature/add-payments",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
-    const { tool } = buildTool();
+    const { tool, detectBranchName } = buildTool();
 
     const result = await tool.execute(
       "tool-call-123",
@@ -159,7 +197,7 @@ describe("tool", () => {
         question: "Does this help?",
         context: "More context",
         confidence: 40,
-        thread_id: "Agent Q #42 — payment processing",
+        thread_id: "feature/add-payments",
       },
       new AbortController().signal,
       undefined,
@@ -167,18 +205,25 @@ describe("tool", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.details?.thread_id).toBe("Agent Q #42 — payment processing");
+    expect(result.details?.thread_id).toBe("feature/add-payments");
     expect(mockZulipClient.postMessage).toHaveBeenCalledWith(
       "test-stream",
-      "Agent Q #42 — payment processing",
+      "feature/add-payments",
       expect.stringContaining("Follow-up:"),
     );
+    expect(detectBranchName).not.toHaveBeenCalled();
 
     const followUpPollOptions = mockZulipClient.pollForReply.mock
       .calls[0]?.[4] as {
-      topicId?: string;
+      questionMessageId?: string;
+      stream?: string;
+      topic?: string;
     };
-    expect(followUpPollOptions.topicId).toBe("42");
+    expect(followUpPollOptions).toMatchObject({
+      stream: "test-stream",
+      topic: "feature/add-payments",
+      questionMessageId: "123",
+    });
   });
 
   it("should format message correctly for new question", async () => {
@@ -191,7 +236,7 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
-      subject: "Agent Q #abc123 — test",
+      subject: "feature/add-payments",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
@@ -222,7 +267,7 @@ describe("tool", () => {
     );
   });
 
-  it("should truncate long summaries to exactly 60 code points", async () => {
+  it("should truncate long branch names to 60 code points", async () => {
     mockZulipClient.postMessage.mockResolvedValue("123");
     mockZulipClient.registerEventQueue.mockResolvedValue({
       queueId: "queue-123",
@@ -232,48 +277,12 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
-      subject: "Agent Q #abc123 — test",
+      subject: "feature/some-really-long-branch-name",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
-    const { tool } = buildTool();
-
-    const longQuestion =
-      "This is a very long question that should be trimmed in the topic line because it exceeds fifty characters.";
-
-    await tool.execute(
-      "tool-call-123",
-      {
-        question: longQuestion,
-        context: "Context",
-        confidence: 30,
-      },
-      new AbortController().signal,
-      undefined,
-      ctx,
-    );
-
-    const topic = mockZulipClient.postMessage.mock.calls[0]?.[1] as string;
-    expect(topic).toContain("Agent Q #");
-    expect(topic).toContain("...");
-    expect([...topic]).toHaveLength(60);
-  });
-
-  it("should generate a topic at or below 60 code points for short questions", async () => {
-    mockZulipClient.postMessage.mockResolvedValue("123");
-    mockZulipClient.registerEventQueue.mockResolvedValue({
-      queueId: "queue-123",
-      lastEventId: "999",
-    });
-    mockZulipClient.pollForReply.mockResolvedValue({
-      id: "456",
-      sender_email: "human@example.com",
-      content: "Answer",
-      subject: "Agent Q #abc123 — test",
-    });
-    mockZulipClient.deregisterQueue.mockResolvedValue();
-
-    const { tool } = buildTool();
+    const { tool, detectBranchName } = buildTool();
+    detectBranchName.mockReturnValueOnce(`feature/${"🧪".repeat(80)}`);
 
     await tool.execute(
       "tool-call-123",
@@ -288,11 +297,11 @@ describe("tool", () => {
     );
 
     const topic = mockZulipClient.postMessage.mock.calls[0]?.[1] as string;
-    expect([...topic].length).toBeLessThanOrEqual(60);
-    expect(topic).toMatch(/Agent Q #[a-z0-9]+/i);
+    expect(topic.endsWith("...")).toBe(true);
+    expect([...topic]).toHaveLength(60);
   });
 
-  it("should count emoji as code points when truncating topics", async () => {
+  it("should use Detached HEAD topic when branch detection falls back", async () => {
     mockZulipClient.postMessage.mockResolvedValue("123");
     mockZulipClient.registerEventQueue.mockResolvedValue({
       queueId: "queue-123",
@@ -302,19 +311,17 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
-      subject: "Agent Q #abc123 — test",
+      subject: "Detached HEAD",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
-    const { tool } = buildTool();
-
-    const emojiHeavyQuestion =
-      "🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪 This question uses many emoji and should still truncate safely for Zulip topics.";
+    const { tool, detectBranchName } = buildTool();
+    detectBranchName.mockReturnValueOnce("Detached HEAD");
 
     await tool.execute(
       "tool-call-123",
       {
-        question: emojiHeavyQuestion,
+        question: "Short question?",
         context: "Context",
         confidence: 30,
       },
@@ -323,10 +330,11 @@ describe("tool", () => {
       ctx,
     );
 
-    const topic = mockZulipClient.postMessage.mock.calls[0]?.[1] as string;
-    expect([...topic]).toHaveLength(60);
-    expect(topic).toContain("...");
-    expect(topic).toMatch(/Agent Q #[a-z0-9]+/i);
+    expect(mockZulipClient.postMessage).toHaveBeenCalledWith(
+      "test-stream",
+      "Detached HEAD",
+      expect.any(String),
+    );
   });
 
   it("should format message correctly for follow-up", async () => {
@@ -339,7 +347,7 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
-      subject: "Agent Q #abc123 — test",
+      subject: "feature/add-payments",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
@@ -351,7 +359,7 @@ describe("tool", () => {
         question: "Here is more info",
         context: "",
         confidence: 50,
-        thread_id: "Agent Q #1 — previous topic",
+        thread_id: "feature/add-payments",
       },
       new AbortController().signal,
       undefined,
@@ -579,7 +587,7 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
-      subject: "Agent Q #abc123 — test",
+      subject: "feature/add-payments",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
@@ -746,7 +754,7 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
-      subject: "Agent Q #abc123 — test",
+      subject: "feature/add-payments",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 

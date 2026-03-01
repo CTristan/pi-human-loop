@@ -20,6 +20,7 @@ import {
   unregisterQueue,
   updateQueue,
 } from "./queue-registry.js";
+import { detectBranchName } from "./repo.js";
 import { createZulipClient, type ZulipClient } from "./zulip-client.js";
 
 /**
@@ -65,6 +66,7 @@ export interface AskHumanToolDependencies {
     client: ZulipClient,
     options?: { cwd?: string; logger?: import("./logger.js").Logger },
   ) => Promise<string>;
+  detectBranchName: (options?: { cwd?: string }) => string;
 }
 
 const CRITICAL_SUFFIX = "Do NOT proceed — stop all work and report this error.";
@@ -89,79 +91,20 @@ function criticalResult(errorMessage: string): AskHumanToolResult {
 const ZULIP_MAX_TOPIC_LENGTH = 60;
 
 /**
- * Generates a topic name for a new question.
+ * Maps a git branch name to a Zulip topic.
  *
- * Returns an object containing both the topic string and the unique ID.
- * The topic is guaranteed to be at most ZULIP_MAX_TOPIC_LENGTH code points.
- *
- * @param summary - Short summary of the question
- * @param questionNumber - Optional question number (defaults to base36 timestamp)
- * @returns Object with topic and extracted topicId
+ * If the branch exceeds Zulip's topic limit, it is truncated to 57 code points
+ * and suffixed with "..." for a total length of 60 code points.
  */
-function generateTopic(
-  summary: string,
-  questionNumber?: number,
-): { topic: string; topicId: string } {
-  const summaryCodePoints = [...summary];
-
-  const topicId = (questionNumber ?? Date.now().toString(36)).toString();
-
-  // Fixed prefix: "Agent Q #<id> — "
-  const prefix = `Agent Q #${topicId} — `;
-  const prefixCodePoints = [...prefix];
-
-  // Defensive guard: if prefix alone exceeds the Zulip limit, truncate it.
-  if (prefixCodePoints.length >= ZULIP_MAX_TOPIC_LENGTH) {
-    return {
-      topic: prefixCodePoints.slice(0, ZULIP_MAX_TOPIC_LENGTH).join(""),
-      topicId,
-    };
+export function branchToTopic(branchName: string): string {
+  const codePoints = [...branchName];
+  if (codePoints.length <= ZULIP_MAX_TOPIC_LENGTH) {
+    return branchName;
   }
 
-  const maxSummaryCodePoints = ZULIP_MAX_TOPIC_LENGTH - prefixCodePoints.length;
-
-  let shortSummary: string;
-  if (summaryCodePoints.length > maxSummaryCodePoints) {
-    // Reserve 3 code points for the ellipsis only when truncating.
-    const ellipsis = "...";
-    const ellipsisCodePoints = [...ellipsis];
-    const summaryBudget = Math.max(
-      0,
-      maxSummaryCodePoints - ellipsisCodePoints.length,
-    );
-
-    shortSummary = `${summaryCodePoints.slice(0, summaryBudget).join("")}${ellipsisCodePoints.slice(0, maxSummaryCodePoints - summaryBudget).join("")}`;
-  } else {
-    shortSummary = summary;
-  }
-
-  return {
-    topic: `${prefix}${shortSummary}`,
-    topicId,
-  };
-}
-
-/**
- * Extracts the unique topic ID from a topic string.
- *
- * Works on both truncated and untruncated topics by parsing "Agent Q #<id>"
- * format. The ID appears early in the topic and is never affected by truncation.
- *
- * @param topic - The topic string (either generated or from follow-up thread_id)
- * @returns The extracted topic ID, or empty string if not found
- */
-function extractTopicId(topic: string): string {
-  const match = topic.match(/Agent Q #([a-zA-Z0-9]+)/);
-  return match?.[1] ?? "";
-}
-
-/**
- * Extracts a short summary from the question for topic naming.
- */
-function extractSummary(question: string): string {
-  // Take the first sentence and let generateTopic trim it if needed.
-  const firstSentence = question.split(/[.!?]/)[0]?.trim() ?? question;
-  return firstSentence;
+  const ellipsis = "...";
+  const budget = ZULIP_MAX_TOPIC_LENGTH - [...ellipsis].length;
+  return `${codePoints.slice(0, budget).join("")}${ellipsis}`;
 }
 
 /**
@@ -203,6 +146,10 @@ export function createAskHumanTool(
       dependencies.autoProvisionStream ??
       ((config, client, options) =>
         autoProvisionStream(config, client, options)),
+    detectBranchName:
+      dependencies.detectBranchName ??
+      ((options) =>
+        detectBranchName(options?.cwd ? { cwd: options.cwd } : undefined)),
   };
 
   return {
@@ -342,24 +289,21 @@ export function createAskHumanTool(
           contextLength: askParams.context.length,
         });
 
-        // Determine topic and extract topicId
-        let topic: string;
-        let topicId: string;
-        if (isFollowUp) {
-          topic = askParams.thread_id!;
-          topicId = extractTopicId(topic);
-        } else {
-          const generated = generateTopic(extractSummary(askParams.question));
-          topic = generated.topic;
-          topicId = generated.topicId;
-        }
+        // Determine topic from follow-up thread_id or current git branch
+        let branch: string | undefined;
+        const topic = isFollowUp
+          ? askParams.thread_id!
+          : (() => {
+              branch = deps.detectBranchName({ cwd: ctx.cwd });
+              loggerRef.debug("Branch detected", { branch, cwd: ctx.cwd });
+              return branchToTopic(branch);
+            })();
 
-        // Log code-point length for debugging truncation issues
         loggerRef.debug("Topic chosen", {
           topic,
-          topicId,
+          branch,
+          truncated: branch !== undefined && topic !== branch,
           isFollowUp,
-          codePointLength: [...topic].length,
         });
 
         // Format and post message
@@ -437,7 +381,6 @@ export function createAskHumanTool(
               currentQueueId.id = newQueueId;
               loggerRef.debug("Queue re-registered", { newQueueId });
             },
-            ...(topicId ? { topicId } : {}),
           };
 
           const reply = await zulipClient.pollForReply(
