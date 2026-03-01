@@ -28,4 +28,9 @@ describe("prompt", () => {
   it("should include 'how to use it' section", () => {
     expect(ASK_HUMAN_GUIDANCE).toContain("How to use it");
   });
+
+  it("should instruct to stop on errors", () => {
+    expect(ASK_HUMAN_GUIDANCE).toContain("MUST stop working immediately");
+    expect(ASK_HUMAN_GUIDANCE).toContain("Do NOT attempt to continue");
+  });
 });

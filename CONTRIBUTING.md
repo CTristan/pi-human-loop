@@ -27,6 +27,7 @@ For project internals and code organization, see [AGENTS.md](./AGENTS.md).
 │  pi-human-loop Extension (TypeScript)            │
 │  - Registers ask_human tool                     │
 │  - Injects system prompt guidance               │
+│  - Auto-provisions Zulip streams per repo       │
 │  - Posts formatted question to Zulip stream     │
 │  - Long-polls Zulip event API for human reply   │
 │  - Returns human's answer to LLM               │
@@ -99,14 +100,34 @@ This runs type checking, linting, formatting, and tests in sequence.
 
 `tsconfig.json` intentionally keeps `noPropertyAccessFromIndexSignature` disabled (`false`) because enabling it conflicts with Biome's `useLiteralKeys` rule.
 
+## Configuration
+
+Configuration is loaded from three sources, in order of priority:
+
+1. Project config: `.pi/human-loop.json`
+2. Environment variables
+3. Global config: `~/.pi/human-loop.json`
+
+Global config stores credentials and global defaults; project config stores the stream name and repo-specific overrides. The `/human-loop-config` wizard writes these files for you.
+
+## Auto-Provisioning
+
+If no stream is configured for the current repo and auto-provisioning is enabled, the tool will:
+
+1. Detect the repo name (git remote → directory fallback).
+2. Create/subscribe to a Zulip stream with that name.
+3. Persist the stream to `.pi/human-loop.json`.
+
+If auto-provisioning is disabled and no stream is configured, the tool returns a critical error and the agent must stop.
+
 ## Error Handling
 
-The extension gracefully handles various error scenarios without crashing Pi:
+The extension surfaces errors loudly to avoid silent failures:
 
 | Scenario | Behavior |
 |----------|----------|
-| Missing/invalid env vars | Extension loads but tool returns descriptive error on first call |
-| Zulip server unreachable | Tool returns error; agent proceeds with best guess |
+| Missing/invalid configuration | Tool returns a critical error; agent must stop and report it |
+| Zulip server unreachable | Tool returns a critical error; agent must stop and report it |
 | Human never replies | Tool blocks indefinitely (by design) until the Pi process is killed |
 | Multiple humans reply | Returns first non-bot message; subsequent replies are visible in the Zulip topic |
 | Cancellation or graceful shutdown during poll | Attempts to clean up Zulip event queue and return a cancellation result (behavior on hard kills such as `SIGKILL` is not guaranteed) |

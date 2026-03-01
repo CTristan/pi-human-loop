@@ -5,12 +5,24 @@
  * and deregistering queues. Uses raw `fetch()` for minimal dependencies.
  */
 
-import type { Config } from "./config.js";
+import type { ZulipClientConfig } from "./config.js";
 
 export interface ZulipMessage {
   id: string;
   sender_email: string;
   content: string;
+}
+
+export interface ZulipUserProfile {
+  email: string;
+  full_name: string;
+  user_id: number;
+}
+
+export interface ZulipStreamInfo {
+  name: string;
+  description?: string;
+  stream_id?: number;
 }
 
 export interface ZulipClient {
@@ -26,12 +38,16 @@ export interface ZulipClient {
     signal: AbortSignal,
   ): Promise<ZulipMessage | null>;
   deregisterQueue(queueId: string): Promise<void>;
+  validateCredentials(): Promise<ZulipUserProfile>;
+  createStream(name: string, description?: string): Promise<void>;
+  checkStreamExists(name: string): Promise<boolean>;
+  getStreamSubscriptions(): Promise<ZulipStreamInfo[]>;
 }
 
 /**
  * Generates the Authorization header value for Zulip API requests.
  */
-function getAuthHeader(config: Config): string {
+function getAuthHeader(config: ZulipClientConfig): string {
   const credentials = `${config.botEmail}:${config.botApiKey}`;
   return `Basic ${Buffer.from(credentials).toString("base64")}`;
 }
@@ -65,10 +81,24 @@ async function waitWithAbort(
   });
 }
 
+async function requireOk(
+  response: Response,
+  context: string,
+): Promise<Response> {
+  if (response.ok) {
+    return response;
+  }
+
+  const text = await response.text();
+  throw new Error(
+    `${context}: ${response.status} ${response.statusText} - ${text}`,
+  );
+}
+
 /**
  * Creates a new Zulip client with the given configuration.
  */
-export function createZulipClient(config: Config): ZulipClient {
+export function createZulipClient(config: ZulipClientConfig): ZulipClient {
   const baseUrl = config.serverUrl.replace(/\/$/, "");
   const authHeader = getAuthHeader(config);
   const pollIntervalMs = config.pollIntervalMs;
@@ -100,12 +130,7 @@ export function createZulipClient(config: Config): ZulipClient {
         }).toString(),
       });
 
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(
-          `Failed to post message to Zulip: ${response.status} ${response.statusText} - ${text}`,
-        );
-      }
+      await requireOk(response, "Failed to post message to Zulip");
 
       const data = (await response.json()) as { id: number };
       return data.id.toString();
@@ -137,12 +162,7 @@ export function createZulipClient(config: Config): ZulipClient {
         }).toString(),
       });
 
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(
-          `Failed to register event queue: ${response.status} ${response.statusText} - ${text}`,
-        );
-      }
+      await requireOk(response, "Failed to register event queue");
 
       const data = (await response.json()) as {
         queue_id: string;
@@ -292,6 +312,116 @@ export function createZulipClient(config: Config): ZulipClient {
         // Log but don't throw - this is best-effort cleanup
         console.warn(`Failed to deregister queue ${queueId}:`, error);
       }
+    },
+
+    /**
+     * Validates the provided credentials by fetching the bot's profile.
+     */
+    async validateCredentials(): Promise<ZulipUserProfile> {
+      const url = `${baseUrl}/api/v1/users/me`;
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+        },
+      });
+
+      await requireOk(response, "Failed to validate credentials");
+
+      const data = (await response.json()) as {
+        email: string;
+        full_name: string;
+        user_id: number;
+      };
+
+      return {
+        email: data.email,
+        full_name: data.full_name,
+        user_id: data.user_id,
+      };
+    },
+
+    /**
+     * Creates or subscribes to a stream. This is idempotent if the stream exists.
+     */
+    async createStream(name: string, description?: string): Promise<void> {
+      const url = `${baseUrl}/api/v1/users/me/subscriptions`;
+      const subscriptions = [{ name, ...(description ? { description } : {}) }];
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: authHeader,
+        },
+        body: new URLSearchParams({
+          subscriptions: JSON.stringify(subscriptions),
+        }).toString(),
+      });
+
+      await requireOk(response, "Failed to create or subscribe to stream");
+    },
+
+    /**
+     * Checks if a stream exists by name.
+     */
+    async checkStreamExists(name: string): Promise<boolean> {
+      const url = new URL(`${baseUrl}/api/v1/streams`);
+      url.searchParams.set("include_subscribed", "true");
+
+      const response = await fetch(url.toString(), {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+        },
+      });
+
+      await requireOk(response, "Failed to list streams");
+
+      const data = (await response.json()) as {
+        streams: Array<{ name: string }>;
+      };
+
+      return data.streams.some((stream) => stream.name === name);
+    },
+
+    /**
+     * Returns streams the bot is subscribed to.
+     */
+    async getStreamSubscriptions(): Promise<ZulipStreamInfo[]> {
+      const url = `${baseUrl}/api/v1/users/me/subscriptions`;
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+        },
+      });
+
+      await requireOk(response, "Failed to list stream subscriptions");
+
+      const data = (await response.json()) as {
+        subscriptions: Array<{
+          name: string;
+          description?: string;
+          stream_id?: number;
+        }>;
+      };
+
+      return data.subscriptions.map((subscription) => {
+        const streamInfo: ZulipStreamInfo = {
+          name: subscription.name,
+        };
+
+        if (subscription.description !== undefined) {
+          streamInfo.description = subscription.description;
+        }
+
+        if (subscription.stream_id !== undefined) {
+          streamInfo.stream_id = subscription.stream_id;
+        }
+
+        return streamInfo;
+      });
     },
   };
 

@@ -12,7 +12,6 @@ describe("zulip-client", () => {
     serverUrl: "https://zulip.example.com",
     botEmail: "bot@example.com",
     botApiKey: "test-api-key",
-    stream: "test-stream",
     pollIntervalMs: 5000,
   };
 
@@ -643,6 +642,96 @@ describe("zulip-client", () => {
     const base64Part = authHeader.replace("Basic ", "");
     const decoded = Buffer.from(base64Part, "base64").toString();
     expect(decoded).toBe("bot@example.com:test-api-key");
+  });
+
+  it("should validate credentials", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        email: "bot@example.com",
+        full_name: "Bot User",
+        user_id: 99,
+      }),
+    });
+
+    const profile = await client.validateCredentials();
+
+    expect(profile).toEqual({
+      email: "bot@example.com",
+      full_name: "Bot User",
+      user_id: 99,
+    });
+  });
+
+  it("should throw on credential validation failure", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      text: async () => "Invalid API key",
+    });
+
+    await expect(client.validateCredentials()).rejects.toThrow(
+      /Failed to validate credentials: 401/,
+    );
+  });
+
+  it("should create a stream", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      text: async () => "",
+    });
+
+    await expect(
+      client.createStream("new-stream", "My stream"),
+    ).resolves.not.toThrow();
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://zulip.example.com/api/v1/users/me/subscriptions",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("should throw when create stream fails", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      text: async () => "Invalid stream name",
+    });
+
+    await expect(client.createStream("bad", "bad")).rejects.toThrow(
+      /Failed to create or subscribe to stream: 400/,
+    );
+  });
+
+  it("should check if stream exists", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ streams: [{ name: "alpha" }, { name: "beta" }] }),
+    });
+
+    await expect(client.checkStreamExists("beta")).resolves.toBe(true);
+    await expect(client.checkStreamExists("gamma")).resolves.toBe(false);
+  });
+
+  it("should list stream subscriptions", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        subscriptions: [
+          { name: "alpha", description: "desc", stream_id: 1 },
+          { name: "beta" },
+        ],
+      }),
+    });
+
+    const subscriptions = await client.getStreamSubscriptions();
+
+    expect(subscriptions).toEqual([
+      { name: "alpha", description: "desc", stream_id: 1 },
+      { name: "beta", description: undefined, stream_id: undefined },
+    ]);
   });
 
   it("should handle trailing slash in server URL", async () => {

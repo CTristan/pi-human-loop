@@ -7,16 +7,18 @@
 
 import type { ZulipClient } from "./zulip-client.js";
 
+type QueueClient = Pick<ZulipClient, "deregisterQueue">;
+
 /**
  * Active event queues that need cleanup on shutdown.
  * Maps queue ID to Zulip client.
  */
-const activeQueues = new Map<string, ZulipClient>();
+const activeQueues = new Map<string, QueueClient>();
 
 /**
  * Register an active queue for cleanup.
  */
-export function registerQueue(queueId: string, client: ZulipClient): void {
+export function registerQueue(queueId: string, client: QueueClient): void {
   activeQueues.set(queueId, client);
 }
 

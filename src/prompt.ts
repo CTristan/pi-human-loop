@@ -30,4 +30,10 @@ Do NOT use it for:
 1. Call \`ask_human\` with your question, relevant context, and your confidence level (0-100)
 2. The tool will block until a human responds — this is expected
 3. If the response includes a \`thread_id\`, use it in follow-up \`ask_human\` calls to continue the same conversation
-4. Once you have enough information, proceed with your task — do not keep asking unnecessarily`;
+4. Once you have enough information, proceed with your task — do not keep asking unnecessarily
+
+### Critical failures
+
+If \`ask_human\` returns an error, you MUST stop working immediately.
+Do NOT attempt to continue with a best guess.
+Report the error clearly and halt.`;

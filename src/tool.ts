@@ -12,9 +12,10 @@ import type {
   ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import type { Config } from "./config.js";
+import { autoProvisionStream } from "./auto-provision.js";
+import { type Config, loadConfig } from "./config.js";
 import { registerQueue, unregisterQueue } from "./queue-registry.js";
-import type { ZulipClient } from "./zulip-client.js";
+import { createZulipClient, type ZulipClient } from "./zulip-client.js";
 
 /**
  * Parameters for the ask_human tool.
@@ -49,6 +50,31 @@ type AskHumanTool = Omit<RegisterToolArgument, "execute"> & {
   ): Promise<AskHumanToolResult>;
 };
 
+export interface AskHumanToolDependencies {
+  loadConfig: (ctx: ExtensionContext) => Config;
+  createZulipClient: (config: Config) => ZulipClient;
+  autoProvisionStream: (
+    config: Config,
+    client: ZulipClient,
+    options: { cwd?: string },
+  ) => Promise<string>;
+}
+
+const CRITICAL_SUFFIX = "Do NOT proceed — stop all work and report this error.";
+
+function criticalResult(errorMessage: string): AskHumanToolResult {
+  return {
+    content: [
+      {
+        type: "text",
+        text: `CRITICAL: Failed to reach human: ${errorMessage}. ${CRITICAL_SUFFIX}`,
+      },
+    ],
+    isError: true,
+    details: {},
+  };
+}
+
 /**
  * Generates a topic name for a new question.
  */
@@ -63,9 +89,9 @@ function generateTopic(summary: string, questionNumber?: number): string {
  * Extracts a short summary from the question for topic naming.
  */
 function extractSummary(question: string): string {
-  // Take the first sentence or first ~30 chars
+  // Take the first sentence and let generateTopic trim it if needed.
   const firstSentence = question.split(/[.!?]/)[0]?.trim() ?? question;
-  return firstSentence.length > 30 ? firstSentence.slice(0, 30) : firstSentence;
+  return firstSentence;
 }
 
 /**
@@ -97,10 +123,18 @@ _Reply in this topic. The agent is waiting for your response._`;
  * Creates the ask_human tool definition.
  */
 export function createAskHumanTool(
-  config: Config | null,
-  zulipClient: ZulipClient | null,
-  configError: Error | null = null,
+  dependencies: Partial<AskHumanToolDependencies> = {},
 ): AskHumanTool {
+  const deps: AskHumanToolDependencies = {
+    loadConfig:
+      dependencies.loadConfig ?? ((ctx) => loadConfig({ cwd: ctx.cwd })),
+    createZulipClient: dependencies.createZulipClient ?? createZulipClient,
+    autoProvisionStream:
+      dependencies.autoProvisionStream ??
+      ((config, client, options) =>
+        autoProvisionStream(config, client, options)),
+  };
+
   return {
     name: "ask_human",
     label: "Ask Human",
@@ -132,10 +166,9 @@ export function createAskHumanTool(
       params: unknown,
       signal: AbortSignal | undefined,
       onUpdate: AgentToolUpdateCallback<AskHumanToolDetails> | undefined,
-      _ctx: ExtensionContext,
+      ctx: ExtensionContext,
     ) {
       void _toolCallId;
-      void _ctx;
 
       try {
         // Check for abort at start
@@ -147,21 +180,39 @@ export function createAskHumanTool(
           };
         }
 
-        // Check for configuration error
-        if (configError || !config || !zulipClient) {
-          const errorMsg = configError
-            ? configError.message
-            : "Configuration not loaded. Please ensure all required environment variables are set: ZULIP_SERVER_URL, ZULIP_BOT_EMAIL, ZULIP_BOT_API_KEY, ZULIP_STREAM";
-          return {
-            content: [
+        let config: Config;
+        let zulipClient: ZulipClient;
+
+        try {
+          config = deps.loadConfig(ctx);
+          zulipClient = deps.createZulipClient(config);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          return criticalResult(message);
+        }
+
+        if (!config.stream) {
+          try {
+            const streamName = await deps.autoProvisionStream(
+              config,
+              zulipClient,
               {
-                type: "text",
-                text: `Failed to reach human: ${errorMsg}. Proceeding without human input.`,
+                cwd: ctx.cwd,
               },
-            ],
-            isError: true,
-            details: {},
-          };
+            );
+            config.stream = streamName;
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            return criticalResult(message);
+          }
+        }
+
+        if (!config.stream) {
+          return criticalResult(
+            "No stream configured. Run /human-loop-config or set ZULIP_STREAM.",
+          );
         }
 
         const askParams = params as AskHumanParams;
@@ -269,19 +320,9 @@ export function createAskHumanTool(
           throw pollError;
         }
       } catch (error) {
-        // Return error result - LLM proceeds with best guess
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Failed to reach human: ${errorMessage}. Proceeding without human input.`,
-            },
-          ],
-          isError: true,
-          details: {},
-        };
+        return criticalResult(errorMessage);
       }
     },
   };
