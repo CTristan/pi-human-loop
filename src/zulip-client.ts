@@ -12,6 +12,7 @@ export interface ZulipMessage {
   id: string;
   sender_email: string;
   content: string;
+  subject: string;
 }
 
 export interface ZulipUserProfile {
@@ -40,6 +41,7 @@ export interface ZulipClient {
     options?: {
       stream?: string;
       topic?: string;
+      topicId?: string;
       onQueueReregister?: (newQueueId: string) => void;
       questionMessageId?: string;
     },
@@ -169,7 +171,16 @@ export function createZulipClient(
       stream: string,
       topic: string,
     ): Promise<{ queueId: string; lastEventId: string }> {
-      logger?.debug("ZulipClient.registerEventQueue called", { stream, topic });
+      const narrow = [
+        ["stream", stream],
+        ["topic", topic],
+      ];
+      logger?.debug("ZulipClient.registerEventQueue called", {
+        stream,
+        topic,
+        narrow,
+      });
+
       const url = `${baseUrl}/api/v1/register`;
       const response = await fetch(url, {
         method: "POST",
@@ -179,10 +190,7 @@ export function createZulipClient(
         },
         body: new URLSearchParams({
           event_types: JSON.stringify(["message"]),
-          narrow: JSON.stringify([
-            ["stream", stream],
-            ["topic", topic],
-          ]),
+          narrow: JSON.stringify(narrow),
           all_public_streams: "true",
         }).toString(),
       });
@@ -218,6 +226,7 @@ export function createZulipClient(
       options?: {
         stream?: string;
         topic?: string;
+        topicId?: string;
         onQueueReregister?: (newQueueId: string) => void;
         questionMessageId?: string;
       },
@@ -320,7 +329,12 @@ export function createZulipClient(
             events?: Array<{
               id?: number;
               type?: string;
-              message?: { id: number; sender_email: string; content: string };
+              message?: {
+                id: number;
+                sender_email: string;
+                content: string;
+                subject: string;
+              };
             }>;
           };
           const events = data.events ?? [];
@@ -353,10 +367,17 @@ export function createZulipClient(
             if (
               typeof message.sender_email !== "string" ||
               typeof message.id !== "number" ||
-              typeof message.content !== "string"
+              typeof message.content !== "string" ||
+              typeof message.subject !== "string"
             ) {
               continue;
             }
+
+            logger?.debug("ZulipClient.pollForReply message event", {
+              messageId: message.id,
+              senderEmail: message.sender_email,
+              subject: message.subject,
+            });
 
             // Skip stale messages (from before the bot's question)
             if (options?.questionMessageId) {
@@ -371,14 +392,28 @@ export function createZulipClient(
             }
 
             if (message.sender_email !== botEmail) {
+              // Safety-net guard: verify this message topic contains expected topic ID
+              if (
+                options?.topicId &&
+                !message.subject.includes(options.topicId)
+              ) {
+                logger?.debug("Skipping message: topic ID mismatch", {
+                  expectedTopicId: options.topicId,
+                  actualSubject: message.subject,
+                });
+                continue;
+              }
+
               const reply = {
                 id: message.id.toString(),
                 sender_email: message.sender_email,
                 content: message.content,
+                subject: message.subject,
               };
               logger?.debug("ZulipClient.pollForReply reply received", {
                 sender: reply.sender_email,
                 messageId: reply.id,
+                subject: reply.subject,
               });
               return reply;
             }

@@ -64,6 +64,8 @@
 | Human's reply | Human message in same topic | Any non-bot message |
 | Multi-turn | Multiple messages in topic | Tool calls reference topic via `thread_id` |
 
+> **Topic length limit:** Zulip topics are limited to **60 Unicode code points**. Topic generation in `src/tool.ts` must respect `ZULIP_MAX_TOPIC_LENGTH` to avoid Zulip-side truncation that can break exact topic narrows.
+
 ## Configuration Schema
 
 Configuration is loaded from three sources, merged in this order:

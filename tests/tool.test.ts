@@ -84,6 +84,7 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Here's the answer",
+      subject: "Agent Q #abc123 — test",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
@@ -122,6 +123,17 @@ describe("tool", () => {
     );
     expect(mockZulipClient.registerEventQueue).toHaveBeenCalled();
     expect(mockZulipClient.pollForReply).toHaveBeenCalled();
+
+    const postedTopic = mockZulipClient.postMessage.mock
+      .calls[0]?.[1] as string;
+    const topicIdMatch = postedTopic.match(/Agent Q #([a-z0-9]+)/i);
+    expect(topicIdMatch?.[1]).toBeDefined();
+
+    const pollOptions = mockZulipClient.pollForReply.mock.calls[0]?.[4] as {
+      topicId?: string;
+    };
+    expect(pollOptions.topicId).toBe(topicIdMatch?.[1]);
+
     expect(mockZulipClient.deregisterQueue).toHaveBeenCalledWith("queue-123");
   });
 
@@ -135,6 +147,7 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Follow-up answer",
+      subject: "Agent Q #42 — payment processing",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
@@ -160,6 +173,12 @@ describe("tool", () => {
       "Agent Q #42 — payment processing",
       expect.stringContaining("Follow-up:"),
     );
+
+    const followUpPollOptions = mockZulipClient.pollForReply.mock
+      .calls[0]?.[4] as {
+      topicId?: string;
+    };
+    expect(followUpPollOptions.topicId).toBe("42");
   });
 
   it("should format message correctly for new question", async () => {
@@ -172,6 +191,7 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
+      subject: "Agent Q #abc123 — test",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
@@ -202,7 +222,7 @@ describe("tool", () => {
     );
   });
 
-  it("should truncate long summaries in the topic", async () => {
+  it("should truncate long summaries to exactly 60 code points", async () => {
     mockZulipClient.postMessage.mockResolvedValue("123");
     mockZulipClient.registerEventQueue.mockResolvedValue({
       queueId: "queue-123",
@@ -212,6 +232,7 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
+      subject: "Agent Q #abc123 — test",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
@@ -235,6 +256,77 @@ describe("tool", () => {
     const topic = mockZulipClient.postMessage.mock.calls[0]?.[1] as string;
     expect(topic).toContain("Agent Q #");
     expect(topic).toContain("...");
+    expect([...topic]).toHaveLength(60);
+  });
+
+  it("should generate a topic at or below 60 code points for short questions", async () => {
+    mockZulipClient.postMessage.mockResolvedValue("123");
+    mockZulipClient.registerEventQueue.mockResolvedValue({
+      queueId: "queue-123",
+      lastEventId: "999",
+    });
+    mockZulipClient.pollForReply.mockResolvedValue({
+      id: "456",
+      sender_email: "human@example.com",
+      content: "Answer",
+      subject: "Agent Q #abc123 — test",
+    });
+    mockZulipClient.deregisterQueue.mockResolvedValue();
+
+    const { tool } = buildTool();
+
+    await tool.execute(
+      "tool-call-123",
+      {
+        question: "Short question?",
+        context: "Context",
+        confidence: 30,
+      },
+      new AbortController().signal,
+      undefined,
+      ctx,
+    );
+
+    const topic = mockZulipClient.postMessage.mock.calls[0]?.[1] as string;
+    expect([...topic].length).toBeLessThanOrEqual(60);
+    expect(topic).toMatch(/Agent Q #[a-z0-9]+/i);
+  });
+
+  it("should count emoji as code points when truncating topics", async () => {
+    mockZulipClient.postMessage.mockResolvedValue("123");
+    mockZulipClient.registerEventQueue.mockResolvedValue({
+      queueId: "queue-123",
+      lastEventId: "999",
+    });
+    mockZulipClient.pollForReply.mockResolvedValue({
+      id: "456",
+      sender_email: "human@example.com",
+      content: "Answer",
+      subject: "Agent Q #abc123 — test",
+    });
+    mockZulipClient.deregisterQueue.mockResolvedValue();
+
+    const { tool } = buildTool();
+
+    const emojiHeavyQuestion =
+      "🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪 This question uses many emoji and should still truncate safely for Zulip topics.";
+
+    await tool.execute(
+      "tool-call-123",
+      {
+        question: emojiHeavyQuestion,
+        context: "Context",
+        confidence: 30,
+      },
+      new AbortController().signal,
+      undefined,
+      ctx,
+    );
+
+    const topic = mockZulipClient.postMessage.mock.calls[0]?.[1] as string;
+    expect([...topic]).toHaveLength(60);
+    expect(topic).toContain("...");
+    expect(topic).toMatch(/Agent Q #[a-z0-9]+/i);
   });
 
   it("should format message correctly for follow-up", async () => {
@@ -247,6 +339,7 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
+      subject: "Agent Q #abc123 — test",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
@@ -486,6 +579,7 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
+      subject: "Agent Q #abc123 — test",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
@@ -652,6 +746,7 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
+      subject: "Agent Q #abc123 — test",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 

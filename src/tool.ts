@@ -83,13 +83,76 @@ function criticalResult(errorMessage: string): AskHumanToolResult {
 }
 
 /**
- * Generates a topic name for a new question.
+ * Zulip's maximum topic length in Unicode code points.
+ * Topics longer than this will be silently truncated by Zulip.
  */
-function generateTopic(summary: string, questionNumber?: number): string {
-  const shortSummary =
-    summary.length > 50 ? `${summary.slice(0, 47)}...` : summary;
-  const num = questionNumber ?? Date.now().toString(36);
-  return `Agent Q #${num} — ${shortSummary}`;
+const ZULIP_MAX_TOPIC_LENGTH = 60;
+
+/**
+ * Generates a topic name for a new question.
+ *
+ * Returns an object containing both the topic string and the unique ID.
+ * The topic is guaranteed to be at most ZULIP_MAX_TOPIC_LENGTH code points.
+ *
+ * @param summary - Short summary of the question
+ * @param questionNumber - Optional question number (defaults to base36 timestamp)
+ * @returns Object with topic and extracted topicId
+ */
+function generateTopic(
+  summary: string,
+  questionNumber?: number,
+): { topic: string; topicId: string } {
+  const summaryCodePoints = [...summary];
+
+  const topicId = (questionNumber ?? Date.now().toString(36)).toString();
+
+  // Fixed prefix: "Agent Q #<id> — "
+  const prefix = `Agent Q #${topicId} — `;
+  const prefixCodePoints = [...prefix];
+
+  // Defensive guard: if prefix alone exceeds the Zulip limit, truncate it.
+  if (prefixCodePoints.length >= ZULIP_MAX_TOPIC_LENGTH) {
+    return {
+      topic: prefixCodePoints.slice(0, ZULIP_MAX_TOPIC_LENGTH).join(""),
+      topicId,
+    };
+  }
+
+  const maxSummaryCodePoints = ZULIP_MAX_TOPIC_LENGTH - prefixCodePoints.length;
+
+  let shortSummary: string;
+  if (summaryCodePoints.length > maxSummaryCodePoints) {
+    // Reserve 3 code points for the ellipsis only when truncating.
+    const ellipsis = "...";
+    const ellipsisCodePoints = [...ellipsis];
+    const summaryBudget = Math.max(
+      0,
+      maxSummaryCodePoints - ellipsisCodePoints.length,
+    );
+
+    shortSummary = `${summaryCodePoints.slice(0, summaryBudget).join("")}${ellipsisCodePoints.slice(0, maxSummaryCodePoints - summaryBudget).join("")}`;
+  } else {
+    shortSummary = summary;
+  }
+
+  return {
+    topic: `${prefix}${shortSummary}`,
+    topicId,
+  };
+}
+
+/**
+ * Extracts the unique topic ID from a topic string.
+ *
+ * Works on both truncated and untruncated topics by parsing "Agent Q #<id>"
+ * format. The ID appears early in the topic and is never affected by truncation.
+ *
+ * @param topic - The topic string (either generated or from follow-up thread_id)
+ * @returns The extracted topic ID, or empty string if not found
+ */
+function extractTopicId(topic: string): string {
+  const match = topic.match(/Agent Q #([a-zA-Z0-9]+)/);
+  return match?.[1] ?? "";
 }
 
 /**
@@ -279,12 +342,25 @@ export function createAskHumanTool(
           contextLength: askParams.context.length,
         });
 
-        // Determine topic
-        const topic = isFollowUp
-          ? askParams.thread_id!
-          : generateTopic(extractSummary(askParams.question));
+        // Determine topic and extract topicId
+        let topic: string;
+        let topicId: string;
+        if (isFollowUp) {
+          topic = askParams.thread_id!;
+          topicId = extractTopicId(topic);
+        } else {
+          const generated = generateTopic(extractSummary(askParams.question));
+          topic = generated.topic;
+          topicId = generated.topicId;
+        }
 
-        loggerRef.debug("Topic chosen", { topic, isFollowUp });
+        // Log code-point length for debugging truncation issues
+        loggerRef.debug("Topic chosen", {
+          topic,
+          topicId,
+          isFollowUp,
+          codePointLength: [...topic].length,
+        });
 
         // Format and post message
         const message = formatMessage(askParams, isFollowUp);
@@ -351,22 +427,25 @@ export function createAskHumanTool(
           const abortSignal = signal ?? new AbortController().signal;
 
           // Poll for reply (handles abort internally)
+          const pollOptions = {
+            stream: config.stream,
+            topic,
+            questionMessageId,
+            onQueueReregister: (newQueueId: string) => {
+              // Update the mutable reference and queue registry
+              updateQueue(currentQueueId.id, newQueueId, zulipClient);
+              currentQueueId.id = newQueueId;
+              loggerRef.debug("Queue re-registered", { newQueueId });
+            },
+            ...(topicId ? { topicId } : {}),
+          };
+
           const reply = await zulipClient.pollForReply(
             currentQueueId.id,
             lastEventId,
             config.botEmail,
             abortSignal,
-            {
-              stream: config.stream,
-              topic,
-              questionMessageId,
-              onQueueReregister: (newQueueId) => {
-                // Update the mutable reference and queue registry
-                updateQueue(currentQueueId.id, newQueueId, zulipClient);
-                currentQueueId.id = newQueueId;
-                loggerRef.debug("Queue re-registered", { newQueueId });
-              },
-            },
+            pollOptions,
           );
 
           // Check if aborted while polling

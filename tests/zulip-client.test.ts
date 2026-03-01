@@ -148,6 +148,36 @@ describe("zulip-client", () => {
     expect(body).toContain("all_public_streams=true");
   });
 
+  it("should log registerEventQueue narrow payload", async () => {
+    const logger = { debug: vi.fn() };
+    const clientWithLogger = createZulipClient({
+      ...config,
+      logger,
+    });
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        queue_id: "queue-123",
+        last_event_id: 999,
+      }),
+    });
+
+    await clientWithLogger.registerEventQueue("test-stream", "test-topic");
+
+    expect(logger.debug).toHaveBeenCalledWith(
+      "ZulipClient.registerEventQueue called",
+      {
+        stream: "test-stream",
+        topic: "test-topic",
+        narrow: [
+          ["stream", "test-stream"],
+          ["topic", "test-topic"],
+        ],
+      },
+    );
+  });
+
   it("should throw error when register queue fails", async () => {
     mockFetch.mockResolvedValue({
       ok: false,
@@ -174,6 +204,7 @@ describe("zulip-client", () => {
               id: 200,
               sender_email: "human@example.com",
               content: "Human's reply",
+              subject: "Agent Q #abc123 — test",
             },
           },
         ],
@@ -191,6 +222,145 @@ describe("zulip-client", () => {
       id: "200",
       sender_email: "human@example.com",
       content: "Human's reply",
+      subject: "Agent Q #abc123 — test",
+    });
+  });
+
+  it("should return reply when topicId matches message subject", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        events: [
+          {
+            id: 1001,
+            message: {
+              id: 200,
+              sender_email: "human@example.com",
+              content: "Human's reply",
+              subject: "Agent Q #mm77lq7a — test",
+            },
+          },
+        ],
+      }),
+    });
+
+    const reply = await client.pollForReply(
+      "queue-123",
+      "999",
+      "bot@example.com",
+      new AbortController().signal,
+      { topicId: "mm77lq7a" },
+    );
+
+    expect(reply).toEqual({
+      id: "200",
+      sender_email: "human@example.com",
+      content: "Human's reply",
+      subject: "Agent Q #mm77lq7a — test",
+    });
+  });
+
+  it("should skip message when topicId does not match and return next matching reply", async () => {
+    const logger = { debug: vi.fn() };
+    const clientWithLogger = createZulipClient({
+      ...config,
+      logger,
+    });
+
+    let callCount = 0;
+    mockFetch.mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          ok: true,
+          json: async () => ({
+            events: [
+              {
+                id: 1001,
+                message: {
+                  id: 200,
+                  sender_email: "human@example.com",
+                  content: "Wrong thread",
+                  subject: "Agent Q #differentid — other",
+                },
+              },
+            ],
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({
+          events: [
+            {
+              id: 1002,
+              message: {
+                id: 201,
+                sender_email: "human@example.com",
+                content: "Correct thread",
+                subject: "Agent Q #mm77lq7a — target",
+              },
+            },
+          ],
+        }),
+      };
+    });
+
+    const reply = await clientWithLogger.pollForReply(
+      "queue-123",
+      "999",
+      "bot@example.com",
+      new AbortController().signal,
+      { topicId: "mm77lq7a" },
+    );
+
+    expect(reply).toEqual({
+      id: "201",
+      sender_email: "human@example.com",
+      content: "Correct thread",
+      subject: "Agent Q #mm77lq7a — target",
+    });
+
+    expect(logger.debug).toHaveBeenCalledWith(
+      "Skipping message: topic ID mismatch",
+      {
+        expectedTopicId: "mm77lq7a",
+        actualSubject: "Agent Q #differentid — other",
+      },
+    );
+  });
+
+  it("should accept reply when topicId is not provided", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        events: [
+          {
+            id: 1001,
+            message: {
+              id: 200,
+              sender_email: "human@example.com",
+              content: "Reply without topic filter",
+              subject: "Completely unrelated topic",
+            },
+          },
+        ],
+      }),
+    });
+
+    const reply = await client.pollForReply(
+      "queue-123",
+      "999",
+      "bot@example.com",
+      new AbortController().signal,
+    );
+
+    expect(reply).toEqual({
+      id: "200",
+      sender_email: "human@example.com",
+      content: "Reply without topic filter",
+      subject: "Completely unrelated topic",
     });
   });
 
@@ -212,6 +382,7 @@ describe("zulip-client", () => {
                   id: 200,
                   sender_email: "bot@example.com",
                   content: "Bot's message",
+                  subject: "Agent Q #abc123 — test",
                 },
               },
             ],
@@ -229,6 +400,7 @@ describe("zulip-client", () => {
                 id: 201,
                 sender_email: "human@example.com",
                 content: "Human's reply",
+                subject: "Agent Q #abc123 — test",
               },
             },
           ],
@@ -247,6 +419,7 @@ describe("zulip-client", () => {
       id: "201",
       sender_email: "human@example.com",
       content: "Human's reply",
+      subject: "Agent Q #abc123 — test",
     });
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
@@ -277,6 +450,7 @@ describe("zulip-client", () => {
                 id: 200,
                 sender_email: "human@example.com",
                 content: "Human's reply",
+                subject: "Agent Q #abc123 — test",
               },
             },
           ],
@@ -295,6 +469,7 @@ describe("zulip-client", () => {
       id: "200",
       sender_email: "human@example.com",
       content: "Human's reply",
+      subject: "Agent Q #abc123 — test",
     });
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
@@ -323,6 +498,7 @@ describe("zulip-client", () => {
                 id: 200,
                 sender_email: "human@example.com",
                 content: "Human's reply",
+                subject: "Agent Q #abc123 — test",
               },
             },
           ],
@@ -341,6 +517,7 @@ describe("zulip-client", () => {
       id: "200",
       sender_email: "human@example.com",
       content: "Human's reply",
+      subject: "Agent Q #abc123 — test",
     });
     expect(mockFetch).toHaveBeenCalledTimes(3);
   });
@@ -358,6 +535,7 @@ describe("zulip-client", () => {
               id: 200,
               sender_email: "human1@example.com",
               content: "First reply",
+              subject: "Agent Q #abc123 — test",
             },
           },
           {
@@ -366,6 +544,7 @@ describe("zulip-client", () => {
               id: 201,
               sender_email: "human2@example.com",
               content: "Second reply",
+              subject: "Agent Q #abc123 — test",
             },
           },
         ],
@@ -383,6 +562,7 @@ describe("zulip-client", () => {
       id: "200",
       sender_email: "human1@example.com",
       content: "First reply",
+      subject: "Agent Q #abc123 — test",
     });
   });
 
@@ -460,6 +640,7 @@ describe("zulip-client", () => {
                 id: 200,
                 sender_email: "human@example.com",
                 content: "Human's reply",
+                subject: "Agent Q #abc123 — test",
               },
             },
           ],
@@ -485,6 +666,7 @@ describe("zulip-client", () => {
       id: "200",
       sender_email: "human@example.com",
       content: "Human's reply",
+      subject: "Agent Q #abc123 — test",
     });
     expect(mockFetch).toHaveBeenCalledTimes(3);
 
@@ -558,6 +740,7 @@ describe("zulip-client", () => {
                 id: 200,
                 sender_email: "human@example.com",
                 content: "Human's reply",
+                subject: "Agent Q #abc123 — test",
               },
             },
           ],
@@ -580,6 +763,7 @@ describe("zulip-client", () => {
       id: "200",
       sender_email: "human@example.com",
       content: "Human's reply",
+      subject: "Agent Q #abc123 — test",
     });
     expect(mockFetch).toHaveBeenCalledTimes(2);
 
@@ -906,6 +1090,7 @@ describe("zulip-client", () => {
                       id: 1002,
                       sender_email: "human@example.com",
                       content: "Here is the reply",
+                      subject: "Agent Q #abc123 — test",
                     },
                   },
                 ],
@@ -941,6 +1126,7 @@ describe("zulip-client", () => {
           id: "1002",
           sender_email: "human@example.com",
           content: "Here is the reply",
+          subject: "Agent Q #abc123 — test",
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
@@ -1050,6 +1236,7 @@ describe("zulip-client", () => {
                 id: 99, // Before question (id 100)
                 sender_email: "human@example.com",
                 content: "Old message",
+                subject: "Agent Q #abc123 — test",
               },
             },
             {
@@ -1059,6 +1246,7 @@ describe("zulip-client", () => {
                 id: 100, // The question itself
                 sender_email: "bot@example.com",
                 content: "Question",
+                subject: "Agent Q #abc123 — test",
               },
             },
             {
@@ -1068,6 +1256,7 @@ describe("zulip-client", () => {
                 id: 101, // After question
                 sender_email: "human@example.com",
                 content: "Real reply",
+                subject: "Agent Q #abc123 — test",
               },
             },
           ],
@@ -1088,6 +1277,7 @@ describe("zulip-client", () => {
         id: "101",
         sender_email: "human@example.com",
         content: "Real reply",
+        subject: "Agent Q #abc123 — test",
       });
 
       expect(logger.debug).toHaveBeenCalledWith("Skipping stale message", {
@@ -1108,6 +1298,7 @@ describe("zulip-client", () => {
                 id: 99,
                 sender_email: "human@example.com",
                 content: "Reply",
+                subject: "Agent Q #abc123 — test",
               },
             },
           ],
@@ -1125,6 +1316,7 @@ describe("zulip-client", () => {
         id: "99",
         sender_email: "human@example.com",
         content: "Reply",
+        subject: "Agent Q #abc123 — test",
       });
     });
   });
