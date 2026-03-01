@@ -3,7 +3,7 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { branchToTopic, createAskHumanTool } from "../src/tool.js";
+import { buildTopic, createAskHumanTool } from "../src/tool.js";
 import type { ZulipClient } from "../src/zulip-client.js";
 
 type MockedZulipClient = {
@@ -16,28 +16,73 @@ type MockedZulipClient = {
   ensureSubscribed: ReturnType<typeof vi.fn<ZulipClient["ensureSubscribed"]>>;
 };
 
-describe("branchToTopic", () => {
-  it("returns short branch names unchanged", () => {
-    expect(branchToTopic("feature/add-payments")).toBe("feature/add-payments");
+describe("buildTopic", () => {
+  it("returns short repo:branch unchanged", () => {
+    expect(buildTopic("my-repo", "main")).toBe("my-repo:main");
   });
 
   it("returns exactly 60 code points unchanged", () => {
-    const branch = "a".repeat(60);
-    expect(branchToTopic(branch)).toBe(branch);
+    const repo = "a".repeat(25);
+    const branch = "b".repeat(34);
+    const topic = buildTopic(repo, branch);
+    expect(topic).toBe(`${repo}:${branch}`);
+    expect([...topic]).toHaveLength(60);
   });
 
-  it("truncates branch names over 60 code points with ellipsis", () => {
-    const branch = `feature/${"x".repeat(80)}`;
-    const topic = branchToTopic(branch);
+  it("truncates branch side when repo + branch exceeds 60 code points", () => {
+    const repo = "my-repo";
+    const branch = "feature/very-long-branch-name-with-lots-of-text-and-more";
+    const topic = buildTopic(repo, branch);
+
+    expect(topic.startsWith("my-repo:")).toBe(true);
+    expect(topic.endsWith("...")).toBe(true);
+    expect([...topic]).toHaveLength(60);
+  });
+
+  it("preserves full repo name when possible", () => {
+    const repo = "my-repository-name";
+    const branch = "feature/" + "x".repeat(80);
+    const topic = buildTopic(repo, branch);
+
+    expect(topic.startsWith("my-repository-name:")).toBe(true);
+    expect(topic.endsWith("...")).toBe(true);
+    expect([...topic]).toHaveLength(60);
+  });
+
+  it("handles very long repo names by truncating both sides", () => {
+    const repo = "very-long-repository-name-that-exceeds-limit";
+    const branch = "feature/long-branch";
+    const topic = buildTopic(repo, branch);
+
+    expect(topic.endsWith("...")).toBe(true);
+    expect([...topic]).toHaveLength(60);
+  });
+
+  it("handles extreme case where repo name alone exceeds limit", () => {
+    const repo = "x".repeat(70);
+    const branch = "main";
+    const topic = buildTopic(repo, branch);
 
     expect(topic.endsWith("...")).toBe(true);
     expect([...topic]).toHaveLength(60);
   });
 
   it("counts Unicode code points correctly", () => {
-    const branch = "🧪".repeat(61);
-    const topic = branchToTopic(branch);
+    const repo = "🧪".repeat(50);
+    const branch = "feature/branch";
+    const topic = buildTopic(repo, branch);
 
+    // Should truncate due to emoji counting as code points
+    expect(topic.endsWith("...")).toBe(true);
+    expect([...topic]).toHaveLength(60);
+  });
+
+  it("handles Unicode in branch names", () => {
+    const repo = "my-repo";
+    const branch = "🧪".repeat(61);
+    const topic = buildTopic(repo, branch);
+
+    expect(topic.startsWith("my-repo:")).toBe(true);
     expect(topic.endsWith("...")).toBe(true);
     expect([...topic]).toHaveLength(60);
   });
@@ -49,6 +94,7 @@ describe("tool", () => {
     botEmail: "bot@example.com",
     botApiKey: "test-api-key",
     stream: "test-stream",
+    streamSource: "global-config" as const,
     pollIntervalMs: 5000,
     autoProvision: true,
   };
@@ -88,16 +134,16 @@ describe("tool", () => {
 
     const loadConfig = vi.fn().mockReturnValue(config);
     const createZulipClient = vi.fn().mockReturnValue(mockZulipClient);
-    const autoProvisionStream = vi
-      .fn()
-      .mockResolvedValue(config.stream ?? "auto-stream");
+    const autoProvisionStream = vi.fn().mockResolvedValue(undefined);
     const detectBranchName = vi.fn().mockReturnValue("feature/add-payments");
+    const detectRepoName = vi.fn().mockReturnValue("my-repo");
 
     const tool = createAskHumanTool({
       loadConfig,
       createZulipClient,
       autoProvisionStream,
       detectBranchName,
+      detectRepoName,
     });
 
     return {
@@ -106,6 +152,7 @@ describe("tool", () => {
       createZulipClient,
       autoProvisionStream,
       detectBranchName,
+      detectRepoName,
       config,
     };
   }
@@ -124,7 +171,7 @@ describe("tool", () => {
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
-    const { tool, detectBranchName } = buildTool();
+    const { tool, detectBranchName, detectRepoName } = buildTool();
 
     const result = await tool.execute(
       "tool-call-123",
@@ -147,15 +194,16 @@ describe("tool", () => {
       ],
       isError: false,
       details: {
-        thread_id: "feature/add-payments",
+        thread_id: "my-repo:feature/add-payments",
         responder: "human@example.com",
       },
     });
 
     expect(detectBranchName).toHaveBeenCalledWith({ cwd: "/tmp" });
+    expect(detectRepoName).toHaveBeenCalledWith({ cwd: "/tmp" });
     expect(mockZulipClient.postMessage).toHaveBeenCalledWith(
       "test-stream",
-      "feature/add-payments",
+      "my-repo:feature/add-payments",
       expect.stringContaining("What should I do?"),
     );
     expect(mockZulipClient.registerEventQueue).toHaveBeenCalled();
@@ -168,7 +216,7 @@ describe("tool", () => {
     };
     expect(pollOptions).toMatchObject({
       stream: "test-stream",
-      topic: "feature/add-payments",
+      topic: "my-repo:feature/add-payments",
       questionMessageId: "123",
     });
 
@@ -267,7 +315,7 @@ describe("tool", () => {
     );
   });
 
-  it("should truncate long branch names to 60 code points", async () => {
+  it("should truncate long repo:branch topics to 60 code points", async () => {
     mockZulipClient.postMessage.mockResolvedValue("123");
     mockZulipClient.registerEventQueue.mockResolvedValue({
       queueId: "queue-123",
@@ -277,7 +325,7 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
-      subject: "feature/some-really-long-branch-name",
+      subject: "my-repo:feature/some-really-long-branch-name",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
@@ -301,7 +349,7 @@ describe("tool", () => {
     expect([...topic]).toHaveLength(60);
   });
 
-  it("should use Detached HEAD topic when branch detection falls back", async () => {
+  it("should use repo:Detached HEAD topic when branch detection falls back", async () => {
     mockZulipClient.postMessage.mockResolvedValue("123");
     mockZulipClient.registerEventQueue.mockResolvedValue({
       queueId: "queue-123",
@@ -311,7 +359,7 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
-      subject: "Detached HEAD",
+      subject: "my-repo:Detached HEAD",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
@@ -332,7 +380,7 @@ describe("tool", () => {
 
     expect(mockZulipClient.postMessage).toHaveBeenCalledWith(
       "test-stream",
-      "Detached HEAD",
+      "my-repo:Detached HEAD",
       expect.any(String),
     );
   });
@@ -744,7 +792,7 @@ describe("tool", () => {
     }
   });
 
-  it("should auto-provision when stream is missing", async () => {
+  it("should auto-provision stream when enabled", async () => {
     mockZulipClient.postMessage.mockResolvedValue("123");
     mockZulipClient.registerEventQueue.mockResolvedValue({
       queueId: "queue-123",
@@ -754,12 +802,11 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
-      subject: "feature/add-payments",
+      subject: "my-repo:feature/add-payments",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
-    const { tool, autoProvisionStream } = buildTool({ stream: undefined });
-    autoProvisionStream.mockResolvedValue("auto-stream");
+    const { tool, autoProvisionStream } = buildTool();
 
     await tool.execute(
       "tool-call-123",
@@ -775,15 +822,15 @@ describe("tool", () => {
 
     expect(autoProvisionStream).toHaveBeenCalled();
     expect(mockZulipClient.postMessage).toHaveBeenCalledWith(
-      "auto-stream",
+      "test-stream",
       expect.any(String),
       expect.any(String),
     );
   });
 
   it("should return error when auto-provision fails", async () => {
-    const { tool, autoProvisionStream } = buildTool({ stream: undefined });
-    autoProvisionStream.mockRejectedValue(new Error("No stream available"));
+    const { tool, autoProvisionStream } = buildTool();
+    autoProvisionStream.mockRejectedValue(new Error("Permission denied"));
 
     const result = await tool.execute(
       "tool-call-123",
@@ -798,14 +845,28 @@ describe("tool", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content?.[0]?.text).toContain("No stream available");
+    expect(result.content?.[0]?.text).toContain("Permission denied");
   });
 
-  it("should return critical error when auto-provision returns no stream", async () => {
-    const { tool, autoProvisionStream } = buildTool({ stream: undefined });
-    autoProvisionStream.mockResolvedValueOnce(undefined as unknown as string);
+  it("should skip auto-provision when disabled", async () => {
+    mockZulipClient.postMessage.mockResolvedValue("123");
+    mockZulipClient.registerEventQueue.mockResolvedValue({
+      queueId: "queue-123",
+      lastEventId: "999",
+    });
+    mockZulipClient.pollForReply.mockResolvedValue({
+      id: "456",
+      sender_email: "human@example.com",
+      content: "Answer",
+      subject: "my-repo:feature/add-payments",
+    });
+    mockZulipClient.deregisterQueue.mockResolvedValue();
 
-    const result = await tool.execute(
+    const { tool, autoProvisionStream } = buildTool({
+      autoProvision: false,
+    });
+
+    await tool.execute(
       "tool-call-123",
       {
         question: "What should I do?",
@@ -817,8 +878,7 @@ describe("tool", () => {
       ctx,
     );
 
-    expect(result.isError).toBe(true);
-    expect(result.content?.[0]?.text).toContain("No stream configured");
+    expect(autoProvisionStream).not.toHaveBeenCalled();
   });
 
   it("should return cancellation when poll errors after abort", async () => {

@@ -91,6 +91,7 @@ describe("config", () => {
     expect(config.botEmail).toBe("bot@example.com");
     expect(config.botApiKey).toBe("test-api-key");
     expect(config.stream).toBe("env-stream");
+    expect(config.streamSource).toBe("env-var");
     expect(config.pollIntervalMs).toBe(CONFIG_DEFAULTS.pollIntervalMs);
   });
 
@@ -114,6 +115,7 @@ describe("config", () => {
     expect(config.botEmail).toBe("bot@example.com");
     expect(config.botApiKey).toBe("env-key");
     expect(config.stream).toBe("project-stream");
+    expect(config.streamSource).toBe("project-config");
     expect(config.autoProvision).toBe(true);
   });
 
@@ -425,5 +427,92 @@ describe("config", () => {
     const config = loadConfig({ homeDir, cwd: projectDir });
 
     expect(config.debug).toBe(true);
+  });
+
+  it("should default stream to pi-human-loop when not configured", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.stream).toBe("pi-human-loop");
+    expect(config.streamSource).toBe("default");
+  });
+
+  it("should track stream source as global-config when set in global", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+      stream: "global-stream",
+    });
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.stream).toBe("global-stream");
+    expect(config.streamSource).toBe("global-config");
+  });
+
+  it("should track stream source as project-config when set in project", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+      stream: "global-stream",
+    });
+
+    saveConfigFile(paths.projectPath, {
+      stream: "project-stream",
+    });
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.stream).toBe("project-stream");
+    expect(config.streamSource).toBe("project-config");
+  });
+
+  it("should track stream source as env-var when set in environment", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    process.env.ZULIP_STREAM = "env-stream";
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.stream).toBe("env-stream");
+    expect(config.streamSource).toBe("env-var");
+  });
+
+  it("should have stream field always defined (required)", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.stream).toBeDefined();
+    expect(typeof config.stream).toBe("string");
+  });
+
+  it("should include default stream in CONFIG_DEFAULTS", () => {
+    expect(CONFIG_DEFAULTS.stream).toBe("pi-human-loop");
   });
 });

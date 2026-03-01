@@ -20,7 +20,7 @@ import {
   unregisterQueue,
   updateQueue,
 } from "./queue-registry.js";
-import { detectBranchName } from "./repo.js";
+import { detectBranchName, detectRepoName } from "./repo.js";
 import { createZulipClient, type ZulipClient } from "./zulip-client.js";
 
 /**
@@ -65,8 +65,9 @@ export interface AskHumanToolDependencies {
     config: Config,
     client: ZulipClient,
     options?: { cwd?: string; logger?: import("./logger.js").Logger },
-  ) => Promise<string>;
+  ) => Promise<void>;
   detectBranchName: (options?: { cwd?: string }) => string;
+  detectRepoName: (options?: { cwd?: string }) => string;
 }
 
 const CRITICAL_SUFFIX = "Do NOT proceed — stop all work and report this error.";
@@ -91,20 +92,62 @@ function criticalResult(errorMessage: string): AskHumanToolResult {
 const ZULIP_MAX_TOPIC_LENGTH = 60;
 
 /**
- * Maps a git branch name to a Zulip topic.
+ * Builds a Zulip topic from a repo name and branch name.
  *
- * If the branch exceeds Zulip's topic limit, it is truncated to 57 code points
- * and suffixed with "..." for a total length of 60 code points.
+ * Format: "repo-name:branch-name"
+ *
+ * If the combined string exceeds 60 code points, truncation happens:
+ * - First, truncate the branch side and append "..."
+ * - If the repo name alone is >=57 code points, also truncate the repo name
+ *
+ * @param repoName - The repository name
+ * @param branchName - The branch name
+ * @returns A Zulip topic string (max 60 code points)
  */
-export function branchToTopic(branchName: string): string {
-  const codePoints = [...branchName];
-  if (codePoints.length <= ZULIP_MAX_TOPIC_LENGTH) {
-    return branchName;
+export function buildTopic(repoName: string, branchName: string): string {
+  const separator = ":";
+  const ellipsis = "...";
+  const separatorCodePoints = [...separator].length;
+  const ellipsisCodePoints = [...ellipsis].length;
+
+  const repoCodePoints = [...repoName];
+  const branchCodePoints = [...branchName];
+
+  // Total length without any truncation
+  const totalLength =
+    repoCodePoints.length + separatorCodePoints + branchCodePoints.length;
+
+  if (totalLength <= ZULIP_MAX_TOPIC_LENGTH) {
+    return `${repoName}${separator}${branchName}`;
   }
 
-  const ellipsis = "...";
-  const budget = ZULIP_MAX_TOPIC_LENGTH - [...ellipsis].length;
-  return `${codePoints.slice(0, budget).join("")}${ellipsis}`;
+  // Calculate budget for the non-ellipsis portion
+  const totalBudget = ZULIP_MAX_TOPIC_LENGTH - ellipsisCodePoints;
+
+  // Reserve room for separator (if possible)
+  const budgetForParts =
+    totalBudget >= separatorCodePoints
+      ? totalBudget - separatorCodePoints
+      : totalBudget;
+
+  // Truncate branch first, preserving as much repo as possible
+  const repoBudget = Math.min(repoCodePoints.length, budgetForParts);
+  const branchBudget = budgetForParts - repoBudget;
+
+  if (branchBudget > 0) {
+    // Partial repo + partial branch (rare case)
+    const truncatedRepo = repoCodePoints.slice(0, repoBudget).join("");
+    const truncatedBranch = branchCodePoints.slice(0, branchBudget).join("");
+    return `${truncatedRepo}${separator}${truncatedBranch}${ellipsis}`;
+  } else if (repoBudget >= separatorCodePoints) {
+    // Repo fits with separator but no room for branch
+    const truncatedRepo = repoCodePoints.slice(0, budgetForParts).join("");
+    return `${truncatedRepo}${separator}${ellipsis}`;
+  } else {
+    // Even the repo name (plus separator) doesn't fit, truncate repo only
+    const truncatedRepo = repoCodePoints.slice(0, budgetForParts).join("");
+    return `${truncatedRepo}${ellipsis}`;
+  }
 }
 
 /**
@@ -150,6 +193,10 @@ export function createAskHumanTool(
       dependencies.detectBranchName ??
       ((options) =>
         detectBranchName(options?.cwd ? { cwd: options.cwd } : undefined)),
+    detectRepoName:
+      dependencies.detectRepoName ??
+      ((options) =>
+        detectRepoName(options?.cwd ? { cwd: options.cwd } : undefined)),
   };
 
   return {
@@ -202,6 +249,9 @@ export function createAskHumanTool(
       });
       loggerRef.debug = initialLogger.debug;
 
+      // Track if stream existence has been ensured (per-session)
+      let streamEnsured = false;
+
       try {
         // Check for abort at start
         if (signal?.aborted) {
@@ -232,6 +282,7 @@ export function createAskHumanTool(
             serverUrl: config.serverUrl,
             botEmail: config.botEmail,
             stream: config.stream,
+            streamSource: config.streamSource,
             debug: config.debug,
           });
 
@@ -251,32 +302,26 @@ export function createAskHumanTool(
           return criticalResult(message);
         }
 
-        if (!config.stream) {
+        loggerRef.debug("Stream resolved", {
+          stream: config.stream,
+          source: config.streamSource,
+        });
+
+        // Ensure stream exists and bot is subscribed (idempotent)
+        if (config.autoProvision && !streamEnsured) {
           try {
-            loggerRef.debug("Auto-provisioning stream");
-            const streamName = await deps.autoProvisionStream(
-              config,
-              zulipClient,
-              {
-                cwd: ctx.cwd,
-                logger: actualLogger,
-              },
-            );
-            config.stream = streamName;
-            loggerRef.debug("Stream auto-provisioned", { streamName });
+            await deps.autoProvisionStream(config, zulipClient, {
+              cwd: ctx.cwd,
+              logger: actualLogger,
+            });
+            streamEnsured = true;
+            loggerRef.debug("Stream ensured", { stream: config.stream });
           } catch (error) {
             const message =
               error instanceof Error ? error.message : String(error);
-            loggerRef.debug("Auto-provision failed", { error: message });
+            loggerRef.debug("Stream ensure failed", { error: message });
             return criticalResult(message);
           }
-        }
-
-        if (!config.stream) {
-          loggerRef.debug("No stream configured");
-          return criticalResult(
-            "No stream configured. Run /human-loop-config or set ZULIP_STREAM.",
-          );
         }
 
         const askParams = params as AskHumanParams;
@@ -289,20 +334,26 @@ export function createAskHumanTool(
           contextLength: askParams.context.length,
         });
 
-        // Determine topic from follow-up thread_id or current git branch
+        // Determine topic from follow-up thread_id or repo:branch
+        let repo: string | undefined;
         let branch: string | undefined;
         const topic = isFollowUp
           ? askParams.thread_id!
           : (() => {
+              repo = deps.detectRepoName({ cwd: ctx.cwd });
               branch = deps.detectBranchName({ cwd: ctx.cwd });
-              loggerRef.debug("Branch detected", { branch, cwd: ctx.cwd });
-              return branchToTopic(branch);
+              loggerRef.debug("Repo name detected", {
+                repoName: repo,
+                cwd: ctx.cwd,
+              });
+              return buildTopic(repo, branch);
             })();
 
-        loggerRef.debug("Topic chosen", {
-          topic,
+        loggerRef.debug("Topic constructed", {
+          repo,
           branch,
-          truncated: branch !== undefined && topic !== branch,
+          topic,
+          truncated: !isFollowUp && topic !== `${repo}:${branch}`,
           isFollowUp,
         });
 

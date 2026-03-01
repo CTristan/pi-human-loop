@@ -263,7 +263,7 @@ export async function runWizard(
       const defaultStream =
         (typeof projectRaw.stream === "string" && projectRaw.stream) ||
         (typeof globalRaw.stream === "string" && globalRaw.stream) ||
-        deps.detectRepoName({ cwd: ctx.cwd });
+        "pi-human-loop";
 
       const streamName = await promptInput(ctx, "Stream name", {
         currentValue: defaultStream,
@@ -302,13 +302,16 @@ export async function runWizard(
       const saveLocation = await deps.selectWrapped(
         ctx,
         "Save stream configuration to",
-        locationLabels,
+        [
+          `Global default (${paths.globalPath})`,
+          `Project override (${paths.projectPath})`,
+        ],
       );
       if (!saveLocation) {
         continue;
       }
 
-      const saveToProject = saveLocation === locationLabels[1];
+      const saveToProject = saveLocation.startsWith("Project");
       const targetRaw = saveToProject ? projectRaw : globalRaw;
       const targetPath = saveToProject ? paths.projectPath : paths.globalPath;
 
@@ -321,7 +324,19 @@ export async function runWizard(
 
       try {
         deps.saveConfigFile(targetPath, targetRaw);
-        notify(ctx, "info", `Saved stream to ${targetPath}.`);
+        if (saveToProject) {
+          notify(
+            ctx,
+            "info",
+            `Saved stream override for this project to ${targetPath}. All agent questions from this repo will use this stream.`,
+          );
+        } else {
+          notify(
+            ctx,
+            "info",
+            `Saved global default stream to ${targetPath}. All agent questions will use this stream unless overridden at the project level.`,
+          );
+        }
       } catch (error) {
         notify(ctx, "error", `Failed to save stream config: ${String(error)}`);
       }
@@ -348,11 +363,19 @@ export async function runWizard(
 
       try {
         deps.saveConfigFile(paths.globalPath, globalRaw);
-        notify(
-          ctx,
-          "info",
-          `Auto-provision ${enabled ? "enabled" : "disabled"}.`,
-        );
+        if (enabled) {
+          notify(
+            ctx,
+            "info",
+            `Auto-provision enabled. The stream will be created automatically if it doesn't exist.`,
+          );
+        } else {
+          notify(
+            ctx,
+            "info",
+            `Auto-provision disabled. Ensure the configured stream exists in Zulip before using the tool.`,
+          );
+        }
       } catch (error) {
         notify(ctx, "error", `Failed to save config: ${String(error)}`);
       }

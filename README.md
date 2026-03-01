@@ -10,8 +10,9 @@ pi-human-loop is a [Pi](https://github.com/badlogic/pi-mono) extension that give
 
 - **`ask_human` tool** — the agent calls it when it needs guidance, with its question, context, and confidence level
 - **Interactive config wizard** — `/human-loop-config` walks you through credentials and stream setup
-- **Auto-provisioned streams** — new repos get a stream created automatically
-- **Zulip integration** — questions appear as topics in a Zulip stream (default topic = current git branch); humans reply in-thread
+- **Single stream model** — all agent questions land in a single Zulip stream (default: `pi-human-loop`) with `repo:branch` topics
+- **Auto-provisioning** — automatically creates the stream if it doesn't exist (can be disabled for locked-down servers)
+- **Zulip integration** — questions appear as topics in a Zulip stream (format: `repo:branch`); humans reply in-thread
 - **Multi-turn conversations** — follow-up questions stay in the same Zulip topic
 - **Efficient polling** — uses Zulip's long-poll API (~90s server-side blocks) for minimal resource usage
 - **Loud failure behavior** — if Zulip is unreachable, the agent stops and reports the error
@@ -66,7 +67,7 @@ export ZULIP_DEBUG=true
 | `ZULIP_SERVER_URL` | Yes | Zulip server base URL |
 | `ZULIP_BOT_EMAIL` | Yes | Bot user email address |
 | `ZULIP_BOT_API_KEY` | Yes | Bot user API key |
-| `ZULIP_STREAM` | No | Stream name for this repo (auto-provision if omitted) |
+| `ZULIP_STREAM` | No | Stream name (default: `pi-human-loop`) |
 | `ZULIP_POLL_INTERVAL_MS` | No | Fallback poll interval in ms (default: `5000`) |
 | `ZULIP_DEBUG` | No | Enable debug logging to `.pi/human-loop-debug.log` (default: `false`) |
 
@@ -76,7 +77,7 @@ Config files are merged in this order: project `.pi/human-loop.json` → env var
 
 1. The agent encounters something it's unsure about (e.g., a test that keeps failing, an ambiguous requirement)
 2. It calls `ask_human` with its question, relevant context, and a confidence score
-3. The extension posts a formatted message to your Zulip stream (topic defaults to current git branch; first 10 lines of context are included):
+3. The extension posts a formatted message to your Zulip stream with a `repo:branch` topic (first 10 lines of context are included):
 
 ```
 🤖 **Agent needs help**

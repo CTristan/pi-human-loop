@@ -27,8 +27,8 @@ For project internals and code organization, see [AGENTS.md](./AGENTS.md).
 │  pi-human-loop Extension (TypeScript)            │
 │  - Registers ask_human tool                     │
 │  - Injects system prompt guidance               │
-│  - Auto-provisions Zulip streams per repo       │
-│  - Posts formatted question to Zulip stream     │
+│  - Ensures Zulip stream exists (auto-provision) │
+│  - Posts formatted question to repo:branch topic  │
 │  - Long-polls Zulip event API for human reply   │
 │  - Returns human's answer to LLM               │
 └──────────────┬──────────────────────────────────┘
@@ -36,8 +36,8 @@ For project internals and code organization, see [AGENTS.md](./AGENTS.md).
                ▼
 ┌─────────────────────────────────────────────────┐
 │  Zulip Server                                   │
-│  - One stream per repo                          │
-│  - One topic per git branch (by default)        │
+│  - One stream for all repos (default: pi-human-loop)│
+│  - One topic per repo:branch                   │
 │  - Long-poll API for efficient waiting          │
 └─────────────────────────────────────────────────┘
 ```
@@ -112,13 +112,14 @@ Global config stores credentials and global defaults; project config stores the 
 
 ## Auto-Provisioning
 
-If no stream is configured for the current repo and auto-provisioning is enabled, the tool will:
+When auto-provisioning is enabled (default: `true`), the tool ensures the configured stream exists and the bot is subscribed before posting messages:
 
-1. Detect the repo name (git remote → directory fallback).
-2. Create/subscribe to a Zulip stream with that name.
-3. Persist the stream to `.pi/human-loop.json`.
+1. Checks if the stream exists (via Zulip API `createStream`, which is idempotent).
+2. Ensures the bot is subscribed to the stream (required to receive event queue events).
 
-If auto-provisioning is disabled and no stream is configured, the tool returns a critical error and the agent must stop.
+This happens once per tool invocation, making the extension resilient to stream deletion or subscription changes.
+
+If auto-provisioning is disabled, the tool assumes the stream exists and skips creation. If the stream doesn't exist or the bot isn't subscribed, the tool will fail when posting or registering the event queue. This mode is useful for locked-down Zulip servers where stream creation requires admin approval.
 
 ## Error Handling
 
@@ -134,16 +135,16 @@ The extension surfaces errors loudly to avoid silent failures:
 
 ## Multi-turn Conversations
 
-The `ask_human` tool supports follow-up questions within the same Zulip topic. The first call uses the current git branch name as the default topic and returns that value as `thread_id`. Subsequent calls can pass that `thread_id` to continue the conversation:
+The `ask_human` tool supports follow-up questions within the same Zulip topic. The first call constructs a `repo:branch` topic and returns that value as `thread_id`. Subsequent calls can pass that `thread_id` to continue the conversation:
 
 ```typescript
-// First call — uses the current branch as topic
+// First call — constructs repo:branch topic
 const result1 = await ask_human({
   question: "Should I use approach A or B?",
   context: "Context about both approaches...",
   confidence: 30,
 });
-// result1.details.thread_id = "feature/add-payments"
+// result1.details.thread_id = "my-repo:feature/add-payments"
 
 // Follow-up — continues in the same topic
 const result2 = await ask_human({
@@ -156,7 +157,7 @@ const result2 = await ask_human({
 
 ## Message Format
 
-### Initial Question (branch topic by default)
+### Initial Question (repo:branch topic)
 
 ```
 🤖 **Agent needs help**

@@ -7,8 +7,6 @@ import os from "node:os";
 import path from "node:path";
 
 import { autoProvisionStream } from "../src/auto-provision.js";
-import { getConfigPaths, loadProjectConfig } from "../src/config.js";
-import * as repo from "../src/repo.js";
 import { detectRepoName, parseRepoNameFromRemote } from "../src/repo.js";
 import type { ZulipClient } from "../src/zulip-client.js";
 
@@ -18,8 +16,7 @@ function setupTempDirs() {
   const projectDir = path.join(baseDir, "project-repo");
   fs.mkdirSync(homeDir, { recursive: true });
   fs.mkdirSync(projectDir, { recursive: true });
-  const paths = getConfigPaths({ homeDir, cwd: projectDir });
-  return { baseDir, homeDir, projectDir, paths };
+  return { baseDir, homeDir, projectDir };
 }
 
 describe("repo detection", () => {
@@ -81,10 +78,10 @@ describe("repo detection", () => {
 });
 
 describe("autoProvisionStream", () => {
-  it("should create a stream and save project config", async () => {
-    const { projectDir, paths } = setupTempDirs();
-    const mockClient: Pick<ZulipClient, "createStream"> = {
+  it("should create a stream and ensure subscription", async () => {
+    const mockClient: Pick<ZulipClient, "createStream" | "ensureSubscribed"> = {
       createStream: vi.fn().mockResolvedValue(undefined),
+      ensureSubscribed: vi.fn().mockResolvedValue(undefined),
     };
 
     const config = {
@@ -94,28 +91,24 @@ describe("autoProvisionStream", () => {
       pollIntervalMs: 5000,
       autoProvision: true,
       debug: false,
+      stream: "pi-human-loop",
+      streamSource: "default" as const,
     };
 
-    const streamName = await autoProvisionStream(
-      config,
-      mockClient as ZulipClient,
-      { cwd: projectDir },
-    );
+    const result = await autoProvisionStream(config, mockClient as ZulipClient);
 
-    expect(streamName).toBe("project-repo");
+    expect(result).toBeUndefined();
     expect(mockClient.createStream).toHaveBeenCalledWith(
-      "project-repo",
+      "pi-human-loop",
       undefined,
     );
-
-    const projectConfig = loadProjectConfig(paths);
-    expect(projectConfig.stream).toBe("project-repo");
+    expect(mockClient.ensureSubscribed).toHaveBeenCalledWith("pi-human-loop");
   });
 
-  it("should persist stream description when provided", async () => {
-    const { projectDir, paths } = setupTempDirs();
-    const mockClient: Pick<ZulipClient, "createStream"> = {
+  it("should pass stream description when provided", async () => {
+    const mockClient: Pick<ZulipClient, "createStream" | "ensureSubscribed"> = {
       createStream: vi.fn().mockResolvedValue(undefined),
+      ensureSubscribed: vi.fn().mockResolvedValue(undefined),
     };
 
     const config = {
@@ -124,20 +117,22 @@ describe("autoProvisionStream", () => {
       botApiKey: "test-key",
       pollIntervalMs: 5000,
       autoProvision: true,
-      streamDescription: "Auto-provisioned stream",
+      streamDescription: "Stream for agent questions",
       debug: false,
+      stream: "my-stream",
+      streamSource: "project-config" as const,
     };
 
-    await autoProvisionStream(config, mockClient as ZulipClient, {
-      cwd: projectDir,
-    });
+    await autoProvisionStream(config, mockClient as ZulipClient);
 
-    const projectConfig = loadProjectConfig(paths);
-    expect(projectConfig.streamDescription).toBe("Auto-provisioned stream");
+    expect(mockClient.createStream).toHaveBeenCalledWith(
+      "my-stream",
+      "Stream for agent questions",
+    );
+    expect(mockClient.ensureSubscribed).toHaveBeenCalledWith("my-stream");
   });
 
   it("should throw when auto-provision is disabled", async () => {
-    const { projectDir } = setupTempDirs();
     const mockClient: Pick<ZulipClient, "createStream"> = {
       createStream: vi.fn().mockResolvedValue(undefined),
     };
@@ -149,17 +144,16 @@ describe("autoProvisionStream", () => {
       pollIntervalMs: 5000,
       autoProvision: false,
       debug: false,
+      stream: "my-stream",
+      streamSource: "global-config" as const,
     };
 
     await expect(
-      autoProvisionStream(config, mockClient as ZulipClient, {
-        cwd: projectDir,
-      }),
+      autoProvisionStream(config, mockClient as ZulipClient),
     ).rejects.toThrow(/auto-provisioning is disabled/);
   });
 
   it("should surface errors from Zulip stream creation", async () => {
-    const { projectDir } = setupTempDirs();
     const mockClient: Pick<ZulipClient, "createStream"> = {
       createStream: vi.fn().mockRejectedValue(new Error("Permission denied")),
     };
@@ -171,19 +165,19 @@ describe("autoProvisionStream", () => {
       pollIntervalMs: 5000,
       autoProvision: true,
       debug: false,
+      stream: "my-stream",
+      streamSource: "default" as const,
     };
 
     await expect(
-      autoProvisionStream(config, mockClient as ZulipClient, {
-        cwd: projectDir,
-      }),
+      autoProvisionStream(config, mockClient as ZulipClient),
     ).rejects.toThrow(/Permission denied/);
   });
 
-  it("should throw when repo name cannot be detected", async () => {
-    const { projectDir } = setupTempDirs();
-    const mockClient: Pick<ZulipClient, "createStream"> = {
+  it("should be idempotent - multiple calls are safe", async () => {
+    const mockClient: Pick<ZulipClient, "createStream" | "ensureSubscribed"> = {
       createStream: vi.fn().mockResolvedValue(undefined),
+      ensureSubscribed: vi.fn().mockResolvedValue(undefined),
     };
 
     const config = {
@@ -193,16 +187,15 @@ describe("autoProvisionStream", () => {
       pollIntervalMs: 5000,
       autoProvision: true,
       debug: false,
+      stream: "my-stream",
+      streamSource: "default" as const,
     };
 
-    const spy = vi.spyOn(repo, "detectRepoName").mockReturnValueOnce("");
+    await autoProvisionStream(config, mockClient as ZulipClient);
+    await autoProvisionStream(config, mockClient as ZulipClient);
+    await autoProvisionStream(config, mockClient as ZulipClient);
 
-    await expect(
-      autoProvisionStream(config, mockClient as ZulipClient, {
-        cwd: projectDir,
-      }),
-    ).rejects.toThrow(/Unable to determine/);
-
-    spy.mockRestore();
+    expect(mockClient.createStream).toHaveBeenCalledTimes(3);
+    expect(mockClient.ensureSubscribed).toHaveBeenCalledTimes(3);
   });
 });

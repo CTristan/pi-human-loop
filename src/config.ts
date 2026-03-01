@@ -18,8 +18,9 @@ export interface ZulipClientConfig {
 }
 
 export interface Config extends ZulipClientConfig {
-  stream?: string;
+  stream: string;
   streamDescription?: string;
+  streamSource: "default" | "global-config" | "project-config" | "env-var";
   autoProvision: boolean;
 }
 
@@ -67,6 +68,7 @@ interface EnvConfigValues {
 
 const DEFAULT_POLL_INTERVAL_MS = 5000;
 const DEFAULT_AUTO_PROVISION = true;
+const DEFAULT_STREAM = "pi-human-loop";
 
 /**
  * Validates that a URL starts with http:// or https://
@@ -446,11 +448,21 @@ export function loadConfig(options?: {
   const serverUrl = merged.serverUrl;
   const botEmail = merged.botEmail;
   const botApiKey = merged.botApiKey;
-  const stream = merged.stream;
+  const stream = merged.stream ?? DEFAULT_STREAM;
   const streamDescription = merged.streamDescription;
   const autoProvision = merged.autoProvision ?? DEFAULT_AUTO_PROVISION;
   const pollIntervalMs = merged.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const debug = merged.debug ?? false;
+
+  // Determine the source of the stream value for logging
+  let streamSource: Config["streamSource"] = "default";
+  if (projectConfig.stream !== undefined) {
+    streamSource = "project-config";
+  } else if (envConfig.stream !== undefined) {
+    streamSource = "env-var";
+  } else if (globalConfig.stream !== undefined) {
+    streamSource = "global-config";
+  }
 
   if (!serverUrl) {
     errors.push({
@@ -506,14 +518,12 @@ export function loadConfig(options?: {
     serverUrl: serverUrl!,
     botEmail: botEmail!,
     botApiKey: botApiKey!,
+    stream,
     pollIntervalMs,
     autoProvision,
     debug,
+    streamSource,
   };
-
-  if (stream !== undefined) {
-    config.stream = stream;
-  }
 
   if (streamDescription !== undefined) {
     config.streamDescription = streamDescription;
@@ -523,6 +533,7 @@ export function loadConfig(options?: {
 }
 
 export const CONFIG_DEFAULTS = {
+  stream: DEFAULT_STREAM,
   pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
   autoProvision: DEFAULT_AUTO_PROVISION,
 };
