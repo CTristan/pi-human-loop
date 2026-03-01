@@ -78,23 +78,24 @@ function createNoOpLogger(): Logger {
 }
 
 function ensureLogFileExists(filePath: string): void {
-  const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  }
-  // Truncate file to start fresh for this session
   try {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    }
+    // Truncate file to start fresh for this session
     fs.writeFileSync(filePath, "", { mode: 0o600 });
-  } catch {
-    // Silently fail on write errors
+  } catch (error) {
+    // Log errors to console since logger initialization failed.
+    console.error(`Failed to initialize debug log file ${filePath}:`, error);
   }
 }
 
 function appendLogLine(filePath: string, entry: LogEntry): void {
-  const line = JSON.stringify(entry) + "\n";
+  const line = `${JSON.stringify(entry)}\n`;
   try {
     fs.appendFileSync(filePath, line, "utf8");
-  } catch (error) {
+  } catch (_error) {
     // Silently fail on write errors to avoid crashing the application
     // The logging should be robust - if it fails, the app should continue
   }

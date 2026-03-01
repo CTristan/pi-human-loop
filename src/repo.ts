@@ -60,7 +60,8 @@ export function detectRepoName(options?: {
     return parsed;
   }
 
-  return path.basename(cwd);
+  const fallback = path.basename(cwd).trim();
+  return fallback || "unknown-repo";
 }
 
 export function detectBranchName(options?: {

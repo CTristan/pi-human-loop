@@ -137,11 +137,31 @@ export function saveConfigFile(
 ): void {
   const directoryPath = path.dirname(filePath);
   fs.mkdirSync(directoryPath, { recursive: true, mode: 0o700 });
-  fs.chmodSync(directoryPath, 0o700);
+  if (process.platform !== "win32") {
+    try {
+      fs.chmodSync(directoryPath, 0o700);
+    } catch (error) {
+      // Log non-permission errors for visibility; ignore EPERM/EACCES.
+      const err = error as NodeJS.ErrnoException;
+      if (err.code !== "EPERM" && err.code !== "EACCES") {
+        console.error(`Failed to set directory permissions: ${err.message}`);
+      }
+    }
+  }
 
   const payload = `${JSON.stringify(data, null, 2)}\n`;
   fs.writeFileSync(filePath, payload, { encoding: "utf8", mode: 0o600 });
-  fs.chmodSync(filePath, 0o600);
+  if (process.platform !== "win32") {
+    try {
+      fs.chmodSync(filePath, 0o600);
+    } catch (error) {
+      // Log non-permission errors for visibility; ignore EPERM/EACCES.
+      const err = error as NodeJS.ErrnoException;
+      if (err.code !== "EPERM" && err.code !== "EACCES") {
+        console.error(`Failed to set file permissions: ${err.message}`);
+      }
+    }
+  }
 }
 
 function parseStringField(
@@ -449,10 +469,21 @@ export function loadConfig(options?: {
   const botEmail = merged.botEmail;
   const botApiKey = merged.botApiKey;
   const stream = merged.stream ?? DEFAULT_STREAM;
-  const streamDescription = merged.streamDescription;
   const autoProvision = merged.autoProvision ?? DEFAULT_AUTO_PROVISION;
   const pollIntervalMs = merged.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const debug = merged.debug ?? false;
+
+  // Select streamDescription from the same source that provided stream
+  let streamDescription: string | undefined;
+  if (projectConfig.stream !== undefined) {
+    streamDescription = projectConfig.streamDescription;
+  } else if (envConfig.stream !== undefined) {
+    streamDescription = undefined; // Env vars don't support streamDescription
+  } else if (globalConfig.stream !== undefined) {
+    streamDescription = globalConfig.streamDescription;
+  } else {
+    streamDescription = merged.streamDescription; // Use inherited description when using default stream
+  }
 
   // Determine the source of the stream value for logging
   let streamSource: Config["streamSource"] = "default";

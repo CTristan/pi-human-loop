@@ -41,7 +41,7 @@ describe("buildTopic", () => {
 
   it("preserves full repo name when possible", () => {
     const repo = "my-repository-name";
-    const branch = "feature/" + "x".repeat(80);
+    const branch = `feature/${"x".repeat(80)}`;
     const topic = buildTopic(repo, branch);
 
     expect(topic.startsWith("my-repository-name:")).toBe(true);
@@ -63,6 +63,17 @@ describe("buildTopic", () => {
     const branch = "main";
     const topic = buildTopic(repo, branch);
 
+    expect(topic.endsWith("...")).toBe(true);
+    expect([...topic]).toHaveLength(60);
+  });
+
+  it("handles rare case where both repo and branch are partially truncated", () => {
+    // Small repo name + very long branch that needs truncation
+    const repo = "a";
+    const branch = `feature/${"x".repeat(100)}`;
+    const topic = buildTopic(repo, branch);
+
+    expect(topic.startsWith("a:")).toBe(true);
     expect(topic.endsWith("...")).toBe(true);
     expect([...topic]).toHaveLength(60);
   });
@@ -683,6 +694,128 @@ describe("tool", () => {
 
     expect(result.isError).toBe(true);
     expect(mockZulipClient.deregisterQueue).toHaveBeenCalledWith("queue-123");
+  });
+
+  it("should handle queue re-registration callback", async () => {
+    mockZulipClient.postMessage.mockResolvedValue("123");
+    mockZulipClient.registerEventQueue.mockResolvedValue({
+      queueId: "queue-123",
+      lastEventId: "999",
+    });
+    mockZulipClient.deregisterQueue.mockResolvedValue();
+
+    let onQueueReregisterCallback: ((newQueueId: string) => void) | undefined;
+
+    mockZulipClient.pollForReply.mockImplementation(
+      async (
+        _queueId: string,
+        _lastEventId: string,
+        _botEmail: string,
+        _signal: AbortSignal,
+        options?: { onQueueReregister?: (newQueueId: string) => void },
+      ) => {
+        // Capture the callback and call it to simulate re-registration
+        onQueueReregisterCallback = options?.onQueueReregister;
+        onQueueReregisterCallback?.("new-queue-456");
+
+        return {
+          id: "456",
+          sender_email: "human@example.com",
+          content: "Answer after re-registration",
+          subject: "my-repo:feature/add-payments",
+        };
+      },
+    );
+
+    const { tool } = buildTool();
+
+    const result = await tool.execute(
+      "tool-call-123",
+      {
+        message: "What should I do? Context\n\nConfidence: 25/100 — unsure.",
+        confidence: 25,
+      },
+      undefined,
+      undefined,
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content?.[0]?.text).toContain("Answer after re-registration");
+    expect(onQueueReregisterCallback).toBeDefined();
+
+    // Verify that the callback was actually called and that the queue was deregistered
+    // with the new queue ID after callback updated the reference
+    expect(mockZulipClient.deregisterQueue).toHaveBeenCalledWith(
+      "new-queue-456",
+    );
+  });
+
+  it("should use default detectBranchName and detectRepoName when not provided", async () => {
+    const oldServerUrl = process.env.ZULIP_SERVER_URL;
+    const oldBotEmail = process.env.ZULIP_BOT_EMAIL;
+    const oldApiKey = process.env.ZULIP_BOT_API_KEY;
+
+    // Set valid env vars to make config load succeed
+    process.env.ZULIP_SERVER_URL = "https://test.zulip.com";
+    process.env.ZULIP_BOT_EMAIL = "bot@test.com";
+    process.env.ZULIP_BOT_API_KEY = "test-key";
+
+    try {
+      mockZulipClient.postMessage.mockResolvedValue("123");
+      mockZulipClient.registerEventQueue.mockResolvedValue({
+        queueId: "queue-123",
+        lastEventId: "999",
+      });
+      mockZulipClient.pollForReply.mockResolvedValue({
+        id: "456",
+        sender_email: "human@example.com",
+        content: "Answer",
+        subject: expect.any(String), // Default detection creates a topic
+      });
+      mockZulipClient.deregisterQueue.mockResolvedValue();
+
+      // Create tool without providing detectBranchName and detectRepoName
+      const tool = createAskHumanTool({
+        loadConfig: vi.fn().mockReturnValue({
+          serverUrl: "https://test.zulip.com",
+          botEmail: "bot@test.com",
+          botApiKey: "test-key",
+          stream: "test-stream",
+          autoProvision: false,
+          pollIntervalMs: 5000,
+          debug: false,
+          streamSource: "default",
+        }),
+        createZulipClient: vi.fn().mockReturnValue(mockZulipClient),
+        autoProvisionStream: vi.fn(),
+        // detectBranchName and detectRepoName are not provided - should use defaults
+      });
+
+      const result = await tool.execute(
+        "tool-call-123",
+        {
+          message: "What should I do?\n\nConfidence: 50/100 — Need guidance.",
+          confidence: 50,
+        },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+      expect(result.isError).toBe(false);
+      // Default detection should create a topic using repo:branch format
+      // In the test environment, it will detect repo "tmp" and fall back to "Detached HEAD"
+      expect(mockZulipClient.postMessage).toHaveBeenCalledWith(
+        "test-stream",
+        "tmp:Detached HEAD",
+        "What should I do?\n\nConfidence: 50/100 — Need guidance.",
+      );
+    } finally {
+      process.env.ZULIP_SERVER_URL = oldServerUrl;
+      process.env.ZULIP_BOT_EMAIL = oldBotEmail;
+      process.env.ZULIP_BOT_API_KEY = oldApiKey;
+    }
   });
 
   it("should have correct tool metadata", () => {
