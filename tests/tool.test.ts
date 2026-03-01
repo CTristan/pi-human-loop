@@ -176,8 +176,8 @@ describe("tool", () => {
     const result = await tool.execute(
       "tool-call-123",
       {
-        question: "What should I do?",
-        context: "Error: something failed",
+        message:
+          "What should I do? Error: something failed\n\nConfidence: 25/100 — I'm unsure how to resolve this.",
         confidence: 25,
       },
       new AbortController().signal,
@@ -204,7 +204,7 @@ describe("tool", () => {
     expect(mockZulipClient.postMessage).toHaveBeenCalledWith(
       "test-stream",
       "my-repo:feature/add-payments",
-      expect.stringContaining("What should I do?"),
+      "What should I do? Error: something failed\n\nConfidence: 25/100 — I'm unsure how to resolve this.",
     );
     expect(mockZulipClient.registerEventQueue).toHaveBeenCalled();
     expect(mockZulipClient.pollForReply).toHaveBeenCalled();
@@ -242,8 +242,8 @@ describe("tool", () => {
     const result = await tool.execute(
       "tool-call-123",
       {
-        question: "Does this help?",
-        context: "More context",
+        message:
+          "Does this help? More context\n\nConfidence: 40/100 — I think this is right but want confirmation.",
         confidence: 40,
         thread_id: "feature/add-payments",
       },
@@ -257,7 +257,7 @@ describe("tool", () => {
     expect(mockZulipClient.postMessage).toHaveBeenCalledWith(
       "test-stream",
       "feature/add-payments",
-      expect.stringContaining("Follow-up:"),
+      "Does this help? More context\n\nConfidence: 40/100 — I think this is right but want confirmation.",
     );
     expect(detectBranchName).not.toHaveBeenCalled();
 
@@ -274,7 +274,7 @@ describe("tool", () => {
     });
   });
 
-  it("should format message correctly for new question", async () => {
+  it("should post message directly to Zulip", async () => {
     mockZulipClient.postMessage.mockResolvedValue("123");
     mockZulipClient.registerEventQueue.mockResolvedValue({
       queueId: "queue-123",
@@ -293,8 +293,8 @@ describe("tool", () => {
     await tool.execute(
       "tool-call-123",
       {
-        question: "Should I change X or Y?",
-        context: "Context line 1\nContext line 2\nContext line 3",
+        message:
+          "Should I change X or Y?\n\nContext line 1\nContext line 2\nContext line 3\n\nConfidence: 30/100 — unsure which approach is better.",
         confidence: 30,
       },
       new AbortController().signal,
@@ -305,13 +305,8 @@ describe("tool", () => {
     const postedMessage = mockZulipClient.postMessage.mock
       .calls[0]?.[2] as string;
 
-    expect(postedMessage).toContain("Agent needs help");
-    expect(postedMessage).toContain("**Question:** Should I change X or Y?");
-    expect(postedMessage).toContain("**Context:**");
-    expect(postedMessage).toContain("Context line 1");
-    expect(postedMessage).toContain("**Confidence:** 30/100");
-    expect(postedMessage).toContain(
-      "Reply in this topic. The agent is waiting for your response.",
+    expect(postedMessage).toBe(
+      "Should I change X or Y?\n\nContext line 1\nContext line 2\nContext line 3\n\nConfidence: 30/100 — unsure which approach is better.",
     );
   });
 
@@ -335,8 +330,7 @@ describe("tool", () => {
     await tool.execute(
       "tool-call-123",
       {
-        question: "Short question?",
-        context: "Context",
+        message: "Short question? Context\n\nConfidence: 30/100 — testing.",
         confidence: 30,
       },
       new AbortController().signal,
@@ -369,8 +363,7 @@ describe("tool", () => {
     await tool.execute(
       "tool-call-123",
       {
-        question: "Short question?",
-        context: "Context",
+        message: "Short question? Context\n\nConfidence: 30/100 — testing.",
         confidence: 30,
       },
       new AbortController().signal,
@@ -385,7 +378,7 @@ describe("tool", () => {
     );
   });
 
-  it("should format message correctly for follow-up", async () => {
+  it("should post follow-up message directly to Zulip", async () => {
     mockZulipClient.postMessage.mockResolvedValue("123");
     mockZulipClient.registerEventQueue.mockResolvedValue({
       queueId: "queue-123",
@@ -404,8 +397,8 @@ describe("tool", () => {
     await tool.execute(
       "tool-call-123",
       {
-        question: "Here is more info",
-        context: "",
+        message:
+          "Here is more info\n\nConfidence: 50/100 — more confident now.",
         confidence: 50,
         thread_id: "feature/add-payments",
       },
@@ -417,10 +410,11 @@ describe("tool", () => {
     const postedMessage = mockZulipClient.postMessage.mock
       .calls[0]?.[2] as string;
 
-    expect(postedMessage).toContain("Follow-up:");
-    expect(postedMessage).toContain("Here is more info");
+    expect(postedMessage).toBe(
+      "Here is more info\n\nConfidence: 50/100 — more confident now.",
+    );
+    expect(postedMessage).not.toContain("Follow-up:");
     expect(postedMessage).not.toContain("Question:");
-    expect(postedMessage).not.toContain("Confidence:");
   });
 
   it("should return error on Zulip post failure", async () => {
@@ -433,8 +427,8 @@ describe("tool", () => {
     const result = await tool.execute(
       "tool-call-123",
       {
-        question: "What should I do?",
-        context: "Error context",
+        message:
+          "What should I do? Error context\n\nConfidence: 25/100 — unsure.",
         confidence: 25,
       },
       new AbortController().signal,
@@ -466,8 +460,8 @@ describe("tool", () => {
     const result = await tool.execute(
       "tool-call-123",
       {
-        question: "What should I do?",
-        context: "Error context",
+        message:
+          "What should I do? Error context\n\nConfidence: 25/100 — unsure.",
         confidence: 25,
       },
       new AbortController().signal,
@@ -495,8 +489,8 @@ describe("tool", () => {
     const result = await tool.execute(
       "tool-call-123",
       {
-        question: "What should I do?",
-        context: "Error context",
+        message:
+          "What should I do? Error context\n\nConfidence: 25/100 — unsure.",
         confidence: 25,
       },
       new AbortController().signal,
@@ -528,8 +522,7 @@ describe("tool", () => {
     const result = await tool.execute(
       "tool-call-123",
       {
-        question: "What should I do?",
-        context: "Context",
+        message: "What should I do? Context\n\nConfidence: 25/100 — unsure.",
         confidence: 25,
       },
       abortController.signal,
@@ -565,8 +558,7 @@ describe("tool", () => {
     const result = await tool.execute(
       "tool-call-123",
       {
-        question: "What should I do?",
-        context: "Context",
+        message: "What should I do? Context\n\nConfidence: 25/100 — unsure.",
         confidence: 25,
       },
       new AbortController().signal,
@@ -597,8 +589,7 @@ describe("tool", () => {
     const result = await tool.execute(
       "tool-call-123",
       {
-        question: "What should I do?",
-        context: "Context",
+        message: "What should I do? Context\n\nConfidence: 25/100 — unsure.",
         confidence: 25,
       },
       abortController.signal,
@@ -644,8 +635,7 @@ describe("tool", () => {
     await tool.execute(
       "tool-call-123",
       {
-        question: "What should I do?",
-        context: "Context",
+        message: "What should I do? Context\n\nConfidence: 25/100 — unsure.",
         confidence: 25,
       },
       new AbortController().signal,
@@ -683,8 +673,7 @@ describe("tool", () => {
     const result = await tool.execute(
       "tool-call-123",
       {
-        question: "What should I do?",
-        context: "Context",
+        message: "What should I do? Context\n\nConfidence: 25/100 — unsure.",
         confidence: 25,
       },
       new AbortController().signal,
@@ -719,8 +708,7 @@ describe("tool", () => {
     const result = await tool.execute(
       "tool-call-123",
       {
-        question: "What should I do?",
-        context: "Context",
+        message: "What should I do? Context\n\nConfidence: 25/100 — unsure.",
         confidence: 25,
       },
       new AbortController().signal,
@@ -756,8 +744,7 @@ describe("tool", () => {
       const result = await tool.execute(
         "tool-call-123",
         {
-          question: "What should I do?",
-          context: "Context",
+          message: "What should I do? Context\n\nConfidence: 25/100 — unsure.",
           confidence: 25,
         },
         new AbortController().signal,
@@ -811,8 +798,7 @@ describe("tool", () => {
     await tool.execute(
       "tool-call-123",
       {
-        question: "What should I do?",
-        context: "Context",
+        message: "What should I do? Context\n\nConfidence: 25/100 — unsure.",
         confidence: 25,
       },
       new AbortController().signal,
@@ -835,8 +821,7 @@ describe("tool", () => {
     const result = await tool.execute(
       "tool-call-123",
       {
-        question: "What should I do?",
-        context: "Context",
+        message: "What should I do? Context\n\nConfidence: 25/100 — unsure.",
         confidence: 25,
       },
       new AbortController().signal,
@@ -869,8 +854,7 @@ describe("tool", () => {
     await tool.execute(
       "tool-call-123",
       {
-        question: "What should I do?",
-        context: "Context",
+        message: "What should I do? Context\n\nConfidence: 25/100 — unsure.",
         confidence: 25,
       },
       new AbortController().signal,
@@ -900,8 +884,7 @@ describe("tool", () => {
     const result = await tool.execute(
       "tool-call-123",
       {
-        question: "What should I do?",
-        context: "Context",
+        message: "What should I do? Context\n\nConfidence: 25/100 — unsure.",
         confidence: 25,
       },
       abortController.signal,

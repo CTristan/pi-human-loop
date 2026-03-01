@@ -8,7 +8,7 @@ pi-human-loop is a [Pi](https://github.com/badlogic/pi-mono) extension that give
 
 ## Features
 
-- **`ask_human` tool** — the agent calls it when it needs guidance, with its question, context, and confidence level
+- **`ask_human` tool** — the agent calls it when it needs guidance, with a natural message and confidence score
 - **Interactive config wizard** — `/human-loop-config` walks you through credentials and stream setup
 - **Single stream model** — all agent questions land in a single Zulip stream (default: `pi-human-loop`) with `repo:branch` topics
 - **Auto-provisioning** — automatically creates the stream if it doesn't exist (can be disabled for locked-down servers)
@@ -76,22 +76,21 @@ Config files are merged in this order: project `.pi/human-loop.json` → env var
 ## How It Works
 
 1. The agent encounters something it's unsure about (e.g., a test that keeps failing, an ambiguous requirement)
-2. It calls `ask_human` with its question, relevant context, and a confidence score
-3. The extension posts a formatted message to your Zulip stream with a `repo:branch` topic (first 10 lines of context are included):
+2. It composes a natural message — like asking a colleague for help — including relevant context, code snippets, options considered, and reasoning, then calls `ask_human` with the message and confidence score
+3. The extension posts the agent's message to your Zulip stream with a `repo:branch` topic:
 
 ```
-🤖 **Agent needs help**
+I'm hitting an issue with the payment processor and need guidance. The test `test_refund_exceeds_original_amount` expects a `DecimalError` but the code is throwing a `ValueError` instead.
 
-**Question:** Should I change the test or the code?
+Looking at payments/processor.py:142, the validation checks `refund_amount > original_amount` first, then calls `validate_decimal_precision()`. The error is thrown in `validate_decimal_precision()` before the amount comparison completes.
 
-**Context:**
-Error: Expected DecimalError, got ValueError
-File: payments/processor.py:142
-... (up to 10 total context lines)
+Options I've considered:
+1. Swap the order of validations — but this would allow invalid decimals through
+2. Catch `ValueError` and re-raise as `DecimalError` — but this feels wrong semantically
 
-**Confidence:** 25/100
+Which approach should I take? Or is there something I'm missing?
 
-_Reply in this topic. The agent is waiting for your response._
+Confidence: 25/100 — I understand the error, but I'm uncertain about the architectural trade-offs.
 ```
 
 4. A human replies in the Zulip topic

@@ -28,7 +28,7 @@ For project internals and code organization, see [AGENTS.md](./AGENTS.md).
 │  - Registers ask_human tool                     │
 │  - Injects system prompt guidance               │
 │  - Ensures Zulip stream exists (auto-provision) │
-│  - Posts formatted question to repo:branch topic  │
+│  - Posts agent's message to repo:branch topic    │
 │  - Long-polls Zulip event API for human reply   │
 │  - Returns human's answer to LLM               │
 └──────────────┬──────────────────────────────────┘
@@ -140,16 +140,14 @@ The `ask_human` tool supports follow-up questions within the same Zulip topic. T
 ```typescript
 // First call — constructs repo:branch topic
 const result1 = await ask_human({
-  question: "Should I use approach A or B?",
-  context: "Context about both approaches...",
+  message: "Should I use approach A or B?\n\nContext about both approaches...\n\nConfidence: 30/100 — I'm unsure which approach is better.",
   confidence: 30,
 });
 // result1.details.thread_id = "my-repo:feature/add-payments"
 
 // Follow-up — continues in the same topic
 const result2 = await ask_human({
-  question: "Here's the code for approach A. Does this look right?",
-  context: "def process(): ...",
+  message: "Here's the code for approach A. Does this look right?\n\ndef process(): ...\n\nConfidence: 50/100 — more confident now with the code.",
   confidence: 50,
   thread_id: result1.details.thread_id,
 });
@@ -157,31 +155,36 @@ const result2 = await ask_human({
 
 ## Message Format
 
+The agent composes natural messages — like asking a colleague for help — and posts them directly to Zulip with no formatting or wrapping. The LLM decides what context to include and how to present it.
+
 ### Initial Question (repo:branch topic)
 
 ```
-🤖 **Agent needs help**
+I'm hitting an issue with the payment processor and need guidance. The test `test_refund_exceeds_original_amount` expects a `DecimalError` but the code is throwing a `ValueError` instead.
 
-**Question:** Should I change the test or the code?
+Looking at payments/processor.py:142, the validation checks `refund_amount > original_amount` first, then calls `validate_decimal_precision()`. The error is thrown in `validate_decimal_precision()` before the amount comparison completes.
 
-**Context:**
-Error: Expected DecimalError, got ValueError
-File: payments/processor.py:142
+Options I've considered:
+1. Swap the order of validations — but this would allow invalid decimals through
+2. Catch `ValueError` and re-raise as `DecimalError` — but this feels wrong semantically
 
-**Confidence:** 25/100
+Which approach should I take? Or is there something I'm missing?
 
-_Reply in this topic. The agent is waiting for your response._
+Confidence: 25/100 — I understand the error, but I'm uncertain about the architectural trade-offs.
 ```
 
 ### Follow-up (same topic)
 
 ```
-🤖 **Follow-up:**
+Thanks for the suggestion! I've implemented the try-catch approach, but now I'm seeing a different issue.
 
-Here's the code for approach A:
-...
+The decimal validation is working, but the error messages are less informative than I'd like. The original `DecimalError` included the field name, but now I'm getting a generic "Invalid decimal precision" message.
 
-_Reply in this topic. The agent is waiting for your response._
+Should I:
+1. Pass the field name to `validate_decimal_precision()` and include it in the error
+2. Catch and re-raise with a custom error message
+
+Confidence: 60/100 — the code works, just need to decide on error message quality.
 ```
 
 ## Debug Logging

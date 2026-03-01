@@ -27,8 +27,7 @@ import { createZulipClient, type ZulipClient } from "./zulip-client.js";
  * Parameters for the ask_human tool.
  */
 export interface AskHumanParams {
-  question: string;
-  context: string;
+  message: string;
   confidence: number;
   thread_id?: string;
 }
@@ -151,31 +150,6 @@ export function buildTopic(repoName: string, branchName: string): string {
 }
 
 /**
- * Formats the message for posting to Zulip.
- */
-function formatMessage(params: AskHumanParams, isFollowUp: boolean): string {
-  if (isFollowUp) {
-    return `🤖 **Follow-up:**
-
-${params.question}
-
-_Reply in this topic. The agent is waiting for your response._`;
-  }
-
-  const contextLines = params.context.split("\n").slice(0, 10).join("\n");
-  return `🤖 **Agent needs help**
-
-**Question:** ${params.question}
-
-**Context:**
-${contextLines}
-
-**Confidence:** ${params.confidence}/100
-
-_Reply in this topic. The agent is waiting for your response._`;
-}
-
-/**
  * Creates the ask_human tool definition.
  */
 export function createAskHumanTool(
@@ -203,18 +177,15 @@ export function createAskHumanTool(
     name: "ask_human",
     label: "Ask Human",
     description:
-      "Post a question to the team's Zulip chat and wait for a human response",
+      "Post a message to the team's Zulip chat and wait for a human response. Compose your message naturally — include context, code snippets, options considered, and your reasoning. End with your confidence score (out of 100) and why.",
     parameters: Type.Object({
-      question: Type.String({
-        description: "The question to ask the human",
-      }),
-      context: Type.String({
+      message: Type.String({
         description:
-          "Relevant context: error logs, code snippets, options considered, reasoning so far",
+          "Your complete message to the human. Write naturally — include context, code snippets, options considered, and your reasoning. End with your confidence score and why.",
       }),
       confidence: Type.Number({
         description:
-          "Your current confidence level (0-100) in resolving this without help",
+          "Your current confidence level (0-100) in resolving this without help. For internal tracking and debug logging.",
         minimum: 0,
         maximum: 100,
       }),
@@ -325,40 +296,39 @@ export function createAskHumanTool(
         }
 
         const askParams = params as AskHumanParams;
-        const isFollowUp = askParams.thread_id != null;
 
         loggerRef.debug("Tool execute called", {
-          isFollowUp,
           confidence: askParams.confidence,
-          questionLength: askParams.question.length,
-          contextLength: askParams.context.length,
+          messageLength: askParams.message.length,
+          isFollowUp: askParams.thread_id != null,
         });
 
         // Determine topic from follow-up thread_id or repo:branch
         let repo: string | undefined;
         let branch: string | undefined;
-        const topic = isFollowUp
-          ? askParams.thread_id!
-          : (() => {
-              repo = deps.detectRepoName({ cwd: ctx.cwd });
-              branch = deps.detectBranchName({ cwd: ctx.cwd });
-              loggerRef.debug("Repo name detected", {
-                repoName: repo,
-                cwd: ctx.cwd,
-              });
-              return buildTopic(repo, branch);
-            })();
+        const topic =
+          askParams.thread_id != null
+            ? askParams.thread_id!
+            : (() => {
+                repo = deps.detectRepoName({ cwd: ctx.cwd });
+                branch = deps.detectBranchName({ cwd: ctx.cwd });
+                loggerRef.debug("Repo name detected", {
+                  repoName: repo,
+                  cwd: ctx.cwd,
+                });
+                return buildTopic(repo, branch);
+              })();
 
         loggerRef.debug("Topic constructed", {
           repo,
           branch,
           topic,
-          truncated: !isFollowUp && topic !== `${repo}:${branch}`,
-          isFollowUp,
+          truncated:
+            askParams.thread_id == null && topic !== `${repo}:${branch}`,
         });
 
         // Format and post message
-        const message = formatMessage(askParams, isFollowUp);
+        const message = askParams.message;
 
         // Stream progress
         onUpdate?.({

@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-`pi-human-loop` is a Pi extension that enables an AI coding agent to start a conversation with a human through Zulip whenever the agent has low confidence in a task. The extension registers a custom tool called `ask_human` that the LLM can call, injects usage guidance into Pi's system prompt, posts formatted questions to a Zulip stream, and blocks until a human replies. It supports multi-turn conversations via Zulip topic threading.
+`pi-human-loop` is a Pi extension that enables an AI coding agent to start a conversation with a human through Zulip whenever the agent has low confidence in a task. The extension registers a custom tool called `ask_human` that the LLM can call, injects usage guidance into Pi's system prompt, posts the agent's message to a Zulip stream, and blocks until a human replies. It supports multi-turn conversations via Zulip topic threading.
 
 ## Key Files
 
@@ -17,12 +17,12 @@
 - **`src/config.ts`**: Configuration loading, validation, and persistence. Merges global JSON config, env vars, and project JSON config. Exposes save helpers for the wizard.
 - **`src/logger.ts`**: Debug logging module with zero-overhead when disabled. Writes JSON-formatted logs to `.pi/human-loop-debug.log` for troubleshooting.
 - **`src/zulip-client.ts`**: Zulip API wrapper. Handles posting messages, registering event queues, long-polling for replies, stream creation, ensuring subscriptions, and deregistering queues. Uses raw `fetch()` for minimal dependencies.
-- **`src/tool.ts`**: `ask_human` tool definition and execute logic. Loads config per call, constructs `repo:branch` topics, ensures the stream exists when auto-provisioning is enabled, formats messages, handles `thread_id` for follow-ups, and supports `signal.aborted` for cancellation.
+- **`src/tool.ts`**: `ask_human` tool definition and execute logic. Loads config per call, constructs `repo:branch` topics, ensures the stream exists when auto-provisioning is enabled, posts messages directly to Zulip, handles `thread_id` for follow-ups, and supports `signal.aborted` for cancellation.
 - **`src/auto-provision.ts`**: Ensures the configured stream exists and the bot is subscribed. Used when auto-provisioning is enabled to automatically create streams that don't exist.
 - **`src/repo.ts`**: Detects repo name from git remote or working directory, and detects the current git branch name for default Zulip topic selection.
 - **`src/wizard.ts`**: Interactive `/human-loop-config` wizard (UI-only) for configuring credentials, streams, poll interval, auto-provisioning, and debug logging.
 - **`src/ui-helpers.ts`**: TUI helpers for the wizard (custom select list wrapper).
-- **`src/prompt.ts`**: System prompt guidance text. Exports `ASK_HUMAN_GUIDANCE` with instructions on when to use `ask_human` and how to handle failures.
+- **`src/prompt.ts`**: System prompt guidance text. Exports `ASK_HUMAN_GUIDANCE` with instructions on when to use `ask_human`, how to compose natural conversational messages, and how to handle failures.
 - **`src/queue-registry.ts`**: Queue registry for cleanup on session shutdown. Manages active Zulip event queues that need cleanup when the session ends. Shared between `index.ts` and `src/tool.ts` to avoid circular dependencies.
 
 ### Documentation
@@ -47,11 +47,11 @@
 
 1. **Extension Load**: Pi loads the extension, `index.ts` registers the `ask_human` tool, registers the `/human-loop-config` command, and hooks into `before_agent_start` and `session_shutdown`.
 2. **System Prompt Injection**: Before each agent turn, `before_agent_start` appends `ASK_HUMAN_GUIDANCE` to the system prompt.
-3. **Tool Call**: The LLM calls `ask_human(question, context, confidence, thread_id?)` when it needs human guidance.
+3. **Tool Call**: The LLM calls `ask_human(message, confidence, thread_id?)` when it needs human guidance.
 4. **Stream Resolution**: The tool resolves the stream name from config (default: `pi-human-loop`) and logs the source (default, global config, project config, or env var).
 5. **Ensure Stream**: If auto-provisioning is enabled, the tool ensures the stream exists and the bot is subscribed (idempotent operation).
 6. **Topic Construction**: For new conversations, the tool constructs a `repo:branch` topic. For follow-ups, it uses the existing `thread_id`.
-7. **Zulip Post**: The tool posts a formatted message to the stream with the constructed topic.
+7. **Zulip Post**: The tool posts the agent's message to the stream with the constructed topic.
 8. **Long-poll**: The tool registers an event queue and long-polls Zulip for a reply.
 9. **Reply Received**: When a human replies, the tool returns the reply text + `thread_id` + responder to the LLM.
 10. **Cleanup**: On successful reply, signal abort, or session shutdown, the tool deregisters the event queue.
