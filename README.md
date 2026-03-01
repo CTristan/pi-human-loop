@@ -48,7 +48,7 @@ Or with [Fix-Die-Repeat](https://github.com/CTristan/fix-die-repeat):
 export FDR_HUMAN_LOOP_EXTENSION=/path/to/pi-human-loop
 ```
 
-The extension auto-provisions a Zulip stream for each repo and saves it to `.pi/human-loop.json` the first time `ask_human` is called.
+The extension ensures the configured Zulip stream (default `pi-human-loop`) exists and saves its settings to `.pi/human-loop.json` the first time `ask_human` is called.
 
 ## Manual Configuration (Optional)
 

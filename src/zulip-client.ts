@@ -261,6 +261,9 @@ export function createZulipClient(
           }
 
           if (!response.ok) {
+            // Read the response body once to reuse for both BAD_EVENT_QUEUE_ID check and error message
+            const text = await response.text();
+
             // Handle BAD_EVENT_QUEUE_ID by re-registering the queue
             if (
               response.status === 400 &&
@@ -268,7 +271,6 @@ export function createZulipClient(
               options?.stream &&
               options?.topic
             ) {
-              const text = await response.text();
               if (text.includes("BAD_EVENT_QUEUE_ID")) {
                 logger?.debug(
                   "BAD_EVENT_QUEUE_ID detected, re-registering queue",
@@ -314,7 +316,6 @@ export function createZulipClient(
               continue;
             }
 
-            const text = await response.text();
             throw new Error(
               `Failed to poll for reply: ${response.status} ${response.statusText} - ${text}`,
             );

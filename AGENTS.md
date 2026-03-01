@@ -61,7 +61,7 @@
 | Concept | Zulip Equivalent | Example |
 |---------|-----------------|---------|
 | Extension (global) | **Stream** | `pi-human-loop` |
-| Repo + branch | **Topic** within stream | `pi-human-loop:feature/add-payments` |
+| Repo + branch | **Topic** within stream | `my-repo:feature/add-payments` |
 | Agent's question/follow-up | Bot message in topic | Posted by the Zulip bot user |
 | Human's reply | Human message in same topic | Any non-bot message |
 | Multi-turn | Multiple messages in topic | Tool calls reference topic via `thread_id` |
