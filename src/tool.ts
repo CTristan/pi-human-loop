@@ -96,12 +96,14 @@ const ZULIP_MAX_TOPIC_LENGTH = 60;
  * Format: "repo-name:branch-name"
  *
  * If the combined string exceeds 60 code points, truncation happens:
- * - First, truncate the branch side and append "..."
- * - If the repo name alone is >=57 code points, also truncate the repo name
- *
- * When space is very limited, the branch may be dropped entirely if
- * reserving even a minimal portion would leave insufficient space for
- * a meaningful repo name.
+ * - A 60-code-point budget is allocated between repo and branch.
+ * - Space is always reserved for the ":" separator and the "..." ellipsis.
+ * - The branch side is truncated first and gets at least a small minimum
+ *   budget; to preserve this, the repo name may be truncated even when it is
+ *   shorter than 57 code points.
+ * - When space is very limited, the branch may be dropped entirely if
+ *   reserving even the minimum branch slice would leave insufficient space
+ *   for a meaningful repo name.
  *
  * @param repoName - The repository name
  * @param branchName - The branch name
