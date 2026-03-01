@@ -99,6 +99,10 @@ const ZULIP_MAX_TOPIC_LENGTH = 60;
  * - First, truncate the branch side and append "..."
  * - If the repo name alone is >=57 code points, also truncate the repo name
  *
+ * When space is very limited, the branch may be dropped entirely if
+ * reserving even a minimal portion would leave insufficient space for
+ * a meaningful repo name.
+ *
  * @param repoName - The repository name
  * @param branchName - The branch name
  * @returns A Zulip topic string (max 60 code points)
@@ -129,12 +133,29 @@ export function buildTopic(repoName: string, branchName: string): string {
       ? totalBudget - separatorCodePoints
       : totalBudget;
 
-  // Truncate branch first, preserving as much repo as possible
-  const repoBudget = Math.min(repoCodePoints.length, budgetForParts);
+  // Reserve minimum budget for branch (at least 3 chars if space allows)
+  // When space is very tight (6 or fewer code points available for repo:branch),
+  // the branch may be dropped entirely
+  const MIN_BRANCH_BUDGET = 3;
+  const effectiveTotalBudget = budgetForParts - MIN_BRANCH_BUDGET;
+
+  // Allocate repo budget, ensuring minimum branch budget if possible
+  let repoBudget: number;
+  if (
+    effectiveTotalBudget > 0 &&
+    repoCodePoints.length > effectiveTotalBudget
+  ) {
+    // Repo exceeds even with minimum branch reserved, cap it
+    repoBudget = effectiveTotalBudget;
+  } else {
+    // Repo fits even with minimum branch reserved, or space is too tight
+    repoBudget = Math.min(repoCodePoints.length, budgetForParts);
+  }
+
   const branchBudget = budgetForParts - repoBudget;
 
   if (branchBudget > 0) {
-    // Partial repo + partial branch (rare case)
+    // Partial repo + partial branch
     const truncatedRepo = repoCodePoints.slice(0, repoBudget).join("");
     const truncatedBranch = branchCodePoints.slice(0, branchBudget).join("");
     return `${truncatedRepo}${separator}${truncatedBranch}${ellipsis}`;

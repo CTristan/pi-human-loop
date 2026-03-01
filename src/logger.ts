@@ -9,6 +9,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
+/**
+ * Tracks which log files have been initialized (truncated) in this process.
+ * This ensures the log file is only truncated once per session, even if
+ * multiple logger instances are created for the same file path.
+ */
+const initializedLogFiles = new Set<string>();
+
 export interface Logger {
   /** Log a debug message with optional structured data. */
   debug(message: string, data?: Record<string, unknown>): void;
@@ -35,7 +42,8 @@ interface LogEntry {
  * When debug is false, returns a no-op logger with zero overhead.
  * When debug is true, creates a logger that writes JSON-formatted
  * log entries to the specified file. The log file is truncated
- * on first write (session start).
+ * on first write (session start), but only once per process even if
+ * multiple logger instances are created for the same file path.
  *
  * @param config - Logger configuration
  * @returns Logger instance
@@ -83,8 +91,11 @@ function ensureLogFileExists(filePath: string): void {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
-    // Truncate file to start fresh for this session
-    fs.writeFileSync(filePath, "", { mode: 0o600 });
+    // Only truncate if this file hasn't been initialized in this process yet
+    if (!initializedLogFiles.has(filePath)) {
+      fs.writeFileSync(filePath, "", { mode: 0o600 });
+      initializedLogFiles.add(filePath);
+    }
   } catch (error) {
     // Log errors to console since logger initialization failed.
     console.error(`Failed to initialize debug log file ${filePath}:`, error);

@@ -924,7 +924,7 @@ describe("zulip-client", () => {
 
     expect(subscriptions).toEqual([
       { name: "alpha", description: "desc", stream_id: 1 },
-      { name: "beta", description: undefined, stream_id: undefined },
+      { name: "beta" },
     ]);
   });
 
