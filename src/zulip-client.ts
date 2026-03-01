@@ -280,6 +280,9 @@ export function createZulipClient(
                   },
                 );
 
+                // Increment attempt counter BEFORE attempting re-registration
+                reregisterAttempts++;
+
                 try {
                   const newQueue = await client.registerEventQueue(
                     options.stream,
@@ -287,7 +290,6 @@ export function createZulipClient(
                   );
                   currentQueueId = newQueue.queueId;
                   currentLastEventId = newQueue.lastEventId;
-                  reregisterAttempts++;
                   options.onQueueReregister?.(currentQueueId);
                   logger?.debug("Queue re-registered", {
                     newQueueId: currentQueueId,
@@ -300,7 +302,22 @@ export function createZulipClient(
                       reregError instanceof Error
                         ? reregError.message
                         : String(reregError),
+                    attempt: reregisterAttempts,
                   });
+
+                  // Retry with backoff if we haven't exhausted attempts
+                  if (reregisterAttempts < maxReregisterAttempts) {
+                    const delay = Math.min(
+                      pollIntervalMs * 2 ** (reregisterAttempts - 1),
+                      60000,
+                    );
+                    const delayElapsed = await waitWithAbort(delay, signal);
+                    if (delayElapsed) {
+                      continue;
+                    } else {
+                      return null;
+                    }
+                  }
                 }
               }
             }
