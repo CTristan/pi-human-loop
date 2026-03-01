@@ -260,7 +260,7 @@ export async function runWizard(
       const defaultStream =
         (typeof projectRaw.stream === "string" && projectRaw.stream) ||
         (typeof globalRaw.stream === "string" && globalRaw.stream) ||
-        "pi-human-loop";
+        CONFIG_DEFAULTS.stream;
 
       const streamName = await promptInput(ctx, "Stream name", {
         currentValue: defaultStream,

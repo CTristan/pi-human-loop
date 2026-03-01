@@ -33,6 +33,7 @@ export async function selectWrapped(
   }
 
   return ctx.ui.custom<string | undefined>((tui, theme, _keybindings, done) => {
+    void _keybindings;
     const container = new Container();
     container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
     container.addChild(new Spacer(1));
