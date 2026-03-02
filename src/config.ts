@@ -432,10 +432,14 @@ function loadEnvConfig(errors: ConfigError[]): EnvConfigValues {
     }
   }
 
-  if (process.env.ZULIP_DEBUG !== undefined) {
-    // Truthy string check: "true", "1", "yes" are true; anything else is false
-    const value = process.env.ZULIP_DEBUG.trim().toLowerCase();
-    env.debug = value === "true" || value === "1" || value === "yes";
+  const rawDebug = process.env.ZULIP_DEBUG;
+  if (rawDebug !== undefined) {
+    const trimmed = rawDebug.trim();
+    if (trimmed.length > 0) {
+      // Truthy string check: "true", "1", "yes" are true; anything else is false
+      const value = trimmed.toLowerCase();
+      env.debug = value === "true" || value === "1" || value === "yes";
+    }
   }
 
   return env;

@@ -372,6 +372,23 @@ describe("config", () => {
     expect(config.debug).toBe(false);
   });
 
+  it("should ignore empty ZULIP_DEBUG and keep higher-priority config value", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+      debug: true,
+    });
+
+    process.env.ZULIP_DEBUG = "   ";
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(true);
+  });
+
   it("should default debug to false when not specified", () => {
     const { paths, homeDir, projectDir } = setupTempDirs();
 

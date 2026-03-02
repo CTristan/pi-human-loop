@@ -531,6 +531,7 @@ describe("wizard", () => {
         .fn()
         .mockResolvedValueOnce("Configure debug logging")
         .mockResolvedValueOnce("Enable debug logging")
+        .mockResolvedValueOnce(`Global (${paths.globalPath})`)
         .mockResolvedValueOnce("Done"),
       input: vi.fn(),
       confirm: vi.fn(),
@@ -556,6 +557,34 @@ describe("wizard", () => {
     );
   });
 
+  it("should allow saving debug logging to project config", async () => {
+    const { projectDir, paths } = setupTempDirs();
+
+    const ui = {
+      select: vi
+        .fn()
+        .mockResolvedValueOnce("Configure debug logging")
+        .mockResolvedValueOnce("Enable debug logging")
+        .mockResolvedValueOnce(`Project (${paths.projectPath})`)
+        .mockResolvedValueOnce("Done"),
+      input: vi.fn(),
+      confirm: vi.fn(),
+      notify: vi.fn(),
+    } as any;
+
+    const ctx = makeContext({ hasUI: true, ui, cwd: projectDir });
+
+    await runWizard(ctx, {
+      getConfigPaths: () => paths,
+      loadGlobalConfig: () => loadGlobalConfig(paths),
+      loadProjectConfig: () => loadProjectConfig(paths),
+      saveConfigFile,
+    });
+
+    const projectConfig = loadProjectConfig(paths);
+    expect(projectConfig.debug).toBe(true);
+  });
+
   it("should disable debug logging via wizard", async () => {
     const { projectDir, paths } = setupTempDirs();
 
@@ -572,6 +601,7 @@ describe("wizard", () => {
         .fn()
         .mockResolvedValueOnce("Configure debug logging")
         .mockResolvedValueOnce("Disable debug logging")
+        .mockResolvedValueOnce(`Global (${paths.globalPath})`)
         .mockResolvedValueOnce("Done"),
       input: vi.fn(),
       confirm: vi.fn(),
@@ -633,6 +663,91 @@ describe("wizard", () => {
       opt.includes("Configure debug logging"),
     );
     expect(debugOption).toContain("enabled");
+  });
+
+  it("should show project debug override in menu", async () => {
+    const { projectDir, paths } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+      debug: false,
+    });
+
+    saveConfigFile(paths.projectPath, {
+      debug: true,
+    });
+
+    const ui = {
+      select: vi.fn().mockResolvedValueOnce("Done"),
+      input: vi.fn(),
+      confirm: vi.fn(),
+      notify: vi.fn(),
+    } as any;
+
+    const ctx = makeContext({ hasUI: true, ui, cwd: projectDir });
+
+    await runWizard(ctx, {
+      getConfigPaths: () => paths,
+      loadGlobalConfig: () => loadGlobalConfig(paths),
+      loadProjectConfig: () => loadProjectConfig(paths),
+      saveConfigFile,
+    });
+
+    const selectCalls = ui.select.mock.calls;
+    const menuOptions = selectCalls[0]?.[1] as string[] | undefined;
+    const debugOption = menuOptions?.find((opt) =>
+      opt.includes("Configure debug logging"),
+    );
+
+    expect(debugOption).toContain("enabled");
+  });
+
+  it("should show env debug override in menu when project debug is unset", async () => {
+    const { projectDir, paths } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+      debug: false,
+    });
+
+    const previousDebug = process.env.ZULIP_DEBUG;
+    process.env.ZULIP_DEBUG = "true";
+
+    try {
+      const ui = {
+        select: vi.fn().mockResolvedValueOnce("Done"),
+        input: vi.fn(),
+        confirm: vi.fn(),
+        notify: vi.fn(),
+      } as any;
+
+      const ctx = makeContext({ hasUI: true, ui, cwd: projectDir });
+
+      await runWizard(ctx, {
+        getConfigPaths: () => paths,
+        loadGlobalConfig: () => loadGlobalConfig(paths),
+        loadProjectConfig: () => loadProjectConfig(paths),
+        saveConfigFile,
+      });
+
+      const selectCalls = ui.select.mock.calls;
+      const menuOptions = selectCalls[0]?.[1] as string[] | undefined;
+      const debugOption = menuOptions?.find((opt) =>
+        opt.includes("Configure debug logging"),
+      );
+
+      expect(debugOption).toContain("enabled");
+    } finally {
+      if (previousDebug === undefined) {
+        delete process.env.ZULIP_DEBUG;
+      } else {
+        process.env.ZULIP_DEBUG = previousDebug;
+      }
+    }
   });
 
   it("should default debug to disabled when not set", async () => {

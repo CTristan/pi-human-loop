@@ -82,6 +82,36 @@ function parsePositiveIntegerInput(value: string): number | undefined {
   return parsed;
 }
 
+function parseEnvDebug(value: string | undefined): boolean | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  const normalized = trimmed.toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+}
+
+function getEffectiveDebugValue(
+  globalRaw: Record<string, unknown>,
+  projectRaw: Record<string, unknown>,
+): boolean {
+  if (typeof projectRaw.debug === "boolean") {
+    return projectRaw.debug;
+  }
+
+  const envDebug = parseEnvDebug(process.env.ZULIP_DEBUG);
+  if (envDebug !== undefined) {
+    return envDebug;
+  }
+
+  return typeof globalRaw.debug === "boolean" ? globalRaw.debug : false;
+}
+
 async function promptNumber(
   ctx: ExtensionContext,
   title: string,
@@ -167,8 +197,7 @@ export async function runWizard(
   }
 
   while (true) {
-    const debugValue =
-      typeof globalRaw.debug === "boolean" ? globalRaw.debug : false;
+    const debugValue = getEffectiveDebugValue(globalRaw, projectRaw);
 
     const menuOptions = [
       "Configure bot credentials",
@@ -425,8 +454,7 @@ export async function runWizard(
     }
 
     if (action.startsWith("Configure debug logging")) {
-      const currentValue =
-        typeof globalRaw.debug === "boolean" ? globalRaw.debug : false;
+      const currentValue = getEffectiveDebugValue(globalRaw, projectRaw);
       const choice = await deps.selectWrapped(
         ctx,
         `Debug logging (current: ${currentValue ? "enabled" : "disabled"})`,
@@ -437,10 +465,23 @@ export async function runWizard(
       }
 
       const enabled = choice.startsWith("Enable");
-      globalRaw.debug = enabled;
+      const saveLocation = await deps.selectWrapped(
+        ctx,
+        "Save debug setting to",
+        locationLabels,
+      );
+      if (!saveLocation) {
+        continue;
+      }
+
+      const saveToProject = saveLocation === locationLabels[1];
+      const targetRaw = saveToProject ? projectRaw : globalRaw;
+      const targetPath = saveToProject ? paths.projectPath : paths.globalPath;
+
+      targetRaw.debug = enabled;
 
       try {
-        deps.saveConfigFile(paths.globalPath, globalRaw);
+        deps.saveConfigFile(targetPath, targetRaw);
         notify(
           ctx,
           "info",
