@@ -16,3 +16,6 @@ coverage/
 
 # Local Config
 .env
+
+# Debug Logs
+.pi/human-loop-debug.log

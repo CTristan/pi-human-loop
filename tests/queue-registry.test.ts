@@ -7,6 +7,7 @@ import {
   cleanupAllQueues,
   registerQueue,
   unregisterQueue,
+  updateQueue,
 } from "../src/queue-registry.js";
 
 // Mock ZulipClient
@@ -98,6 +99,101 @@ describe("queue-registry", () => {
 
       expect(mockClient1.deregisterQueue).not.toHaveBeenCalled();
       expect(mockClient2.deregisterQueue).toHaveBeenCalledTimes(1);
+      expect(mockClient2.deregisterQueue).toHaveBeenCalledWith("queue-2");
+    });
+  });
+
+  describe("updateQueue", () => {
+    it("should update existing queue ID to new queue ID", async () => {
+      const mockClient = createMockZulipClient();
+      registerQueue("old-queue-id", mockClient);
+
+      const result = updateQueue("old-queue-id", "new-queue-id");
+
+      expect(result).toBe(true);
+
+      // Old queue ID should be unregistered
+      await cleanupAllQueues();
+
+      // The client should have been called with the new queue ID
+      expect(mockClient.deregisterQueue).toHaveBeenCalledTimes(1);
+      expect(mockClient.deregisterQueue).toHaveBeenCalledWith("new-queue-id");
+    });
+
+    it("should return false when old queue ID does not exist", async () => {
+      const mockClient = createMockZulipClient();
+      registerQueue("existing-queue", mockClient);
+
+      const result = updateQueue("non-existent-queue", "new-queue-id");
+
+      expect(result).toBe(false);
+
+      // Original queue should still be registered
+      await cleanupAllQueues();
+      expect(mockClient.deregisterQueue).toHaveBeenCalledWith("existing-queue");
+    });
+
+    it("should preserve the client association when updating queue ID", async () => {
+      const mockClient = createMockZulipClient();
+      registerQueue("old-queue", mockClient);
+
+      updateQueue("old-queue", "new-queue");
+
+      // Clean up should use the new queue ID with the same client
+      await cleanupAllQueues();
+
+      expect(mockClient.deregisterQueue).toHaveBeenCalledTimes(1);
+      expect(mockClient.deregisterQueue).toHaveBeenCalledWith("new-queue");
+    });
+
+    it("should allow multiple queue ID updates", async () => {
+      const mockClient = createMockZulipClient();
+      registerQueue("queue-1", mockClient);
+
+      const firstUpdate = updateQueue("queue-1", "queue-2");
+      expect(firstUpdate).toBe(true);
+
+      const secondUpdate = updateQueue("queue-2", "queue-3");
+      expect(secondUpdate).toBe(true);
+
+      // Cleanup should use the final queue ID
+      await cleanupAllQueues();
+
+      expect(mockClient.deregisterQueue).toHaveBeenCalledTimes(1);
+      expect(mockClient.deregisterQueue).toHaveBeenCalledWith("queue-3");
+    });
+
+    it("should handle updating queue ID when multiple queues are registered", async () => {
+      const mockClient1 = createMockZulipClient();
+      const mockClient2 = createMockZulipClient();
+
+      registerQueue("queue-1", mockClient1);
+      registerQueue("queue-2", mockClient2);
+
+      // Update only one queue
+      updateQueue("queue-1", "queue-1-updated");
+
+      await cleanupAllQueues();
+
+      expect(mockClient1.deregisterQueue).toHaveBeenCalledWith(
+        "queue-1-updated",
+      );
+      expect(mockClient2.deregisterQueue).toHaveBeenCalledWith("queue-2");
+    });
+
+    it("should not affect other queues when updating a non-existent queue ID", async () => {
+      const mockClient1 = createMockZulipClient();
+      const mockClient2 = createMockZulipClient();
+
+      registerQueue("queue-1", mockClient1);
+      registerQueue("queue-2", mockClient2);
+
+      const result = updateQueue("non-existent", "new-id");
+      expect(result).toBe(false);
+
+      await cleanupAllQueues();
+
+      expect(mockClient1.deregisterQueue).toHaveBeenCalledWith("queue-1");
       expect(mockClient2.deregisterQueue).toHaveBeenCalledWith("queue-2");
     });
   });

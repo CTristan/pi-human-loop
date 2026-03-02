@@ -4,20 +4,25 @@
 
 ## Project Overview
 
-`pi-human-loop` is a Pi extension that enables an AI coding agent to start a conversation with a human through Zulip whenever the agent has low confidence in a task. The extension registers a custom tool called `ask_human` that the LLM can call, injects usage guidance into Pi's system prompt, posts formatted questions to a Zulip stream, and blocks until a human replies. It supports multi-turn conversations via Zulip topic threading.
+`pi-human-loop` is a Pi extension that enables an AI coding agent to start a conversation with a human through Zulip whenever the agent has low confidence in a task. The extension registers a custom tool called `ask_human` that the LLM can call, injects usage guidance into Pi's system prompt, posts the agent's message to a Zulip stream, and blocks until a human replies. It supports multi-turn conversations via Zulip topic threading.
 
 ## Key Files
 
 ### Entry Point
 
-- **`index.ts`**: Main extension entry point. Wires together all modules, registers the `ask_human` tool, handles `before_agent_start` for system prompt injection, and handles `session_shutdown` for cleanup.
+- **`index.ts`**: Main extension entry point. Wires together all modules, registers the `ask_human` tool, registers the `/human-loop-config` wizard command, handles `before_agent_start` for system prompt injection, and handles `session_shutdown` for cleanup.
 
 ### Source Modules (`src/`)
 
-- **`src/config.ts`**: Configuration loading, validation, and export. Reads environment variables (`ZULIP_SERVER_URL`, `ZULIP_BOT_EMAIL`, `ZULIP_BOT_API_KEY`, `ZULIP_STREAM`, `ZULIP_POLL_INTERVAL_MS`) and validates them.
-- **`src/zulip-client.ts`**: Zulip API wrapper. Handles posting messages, registering event queues, long-polling for replies, and deregistering queues. Uses raw `fetch()` for minimal dependencies.
-- **`src/tool.ts`**: `ask_human` tool definition and execute logic. Wires config and Zulip client, formats messages, handles `thread_id` for follow-ups, and supports `signal.aborted` for cancellation.
-- **`src/prompt.ts`**: System prompt guidance text. Exports `ASK_HUMAN_GUIDANCE` constant with instructions on when to use `ask_human`, how to use it, and when NOT to use it.
+- **`src/config.ts`**: Configuration loading, validation, and persistence. Merges global JSON config, env vars, and project JSON config. Exposes save helpers for the wizard.
+- **`src/logger.ts`**: Debug logging module with zero-overhead when disabled. Writes JSON-formatted logs to `.pi/human-loop-debug.log` for troubleshooting.
+- **`src/zulip-client.ts`**: Zulip API wrapper. Handles posting messages, registering event queues, long-polling for replies, stream creation, ensuring subscriptions, and deregistering queues. Uses raw `fetch()` for minimal dependencies.
+- **`src/tool.ts`**: `ask_human` tool definition and execute logic. Loads config per call, constructs `repo:branch` topics, ensures the stream exists when auto-provisioning is enabled, posts messages directly to Zulip, handles `thread_id` for follow-ups, and supports `signal.aborted` for cancellation.
+- **`src/auto-provision.ts`**: Ensures the configured stream exists and the bot is subscribed. Used when auto-provisioning is enabled to automatically create streams that don't exist.
+- **`src/repo.ts`**: Detects repo name from git remote or working directory, and detects the current git branch name for default Zulip topic selection.
+- **`src/wizard.ts`**: Interactive `/human-loop-config` wizard (UI-only) for configuring credentials, streams, poll interval, auto-provisioning, and debug logging.
+- **`src/ui-helpers.ts`**: TUI helpers for the wizard (custom select list wrapper).
+- **`src/prompt.ts`**: System prompt guidance text. Exports `ASK_HUMAN_GUIDANCE` with instructions on when to use `ask_human`, how to compose natural conversational messages, and how to handle failures.
 - **`src/queue-registry.ts`**: Queue registry for cleanup on session shutdown. Manages active Zulip event queues that need cleanup when the session ends. Shared between `index.ts` and `src/tool.ts` to avoid circular dependencies.
 
 ### Documentation
@@ -40,27 +45,62 @@
 
 ## Data Flow
 
-1. **Extension Load**: Pi loads the extension, `index.ts` registers the `ask_human` tool and hooks into `before_agent_start` and `session_shutdown`.
+1. **Extension Load**: Pi loads the extension, `index.ts` registers the `ask_human` tool, registers the `/human-loop-config` command, and hooks into `before_agent_start` and `session_shutdown`.
 2. **System Prompt Injection**: Before each agent turn, `before_agent_start` appends `ASK_HUMAN_GUIDANCE` to the system prompt.
-3. **Tool Call**: The LLM calls `ask_human(question, context, confidence, thread_id?)` when it needs human guidance.
-4. **Zulip Post**: The tool posts a formatted message to the configured Zulip stream.
-5. **Long-poll**: The tool registers an event queue and long-polls Zulip for a reply.
-6. **Reply Received**: When a human replies, the tool returns the reply text + `thread_id` + responder to the LLM.
-7. **Cleanup**: On successful reply, signal abort, or session shutdown, the tool deregisters the event queue.
+3. **Tool Call**: The LLM calls `ask_human(message, confidence, thread_id?)` when it needs human guidance.
+4. **Stream Resolution**: The tool resolves the stream name from config (default: `pi-human-loop`) and logs the source (default, global config, project config, or env var).
+5. **Ensure Stream**: If auto-provisioning is enabled, the tool ensures the stream exists and the bot is subscribed (idempotent operation).
+6. **Topic Construction**: For new conversations, the tool constructs a `repo:branch` topic. For follow-ups, it uses the existing `thread_id`.
+7. **Zulip Post**: The tool posts the agent's message to the stream with the constructed topic.
+8. **Long-poll**: The tool registers an event queue and long-polls Zulip for a reply.
+9. **Reply Received**: When a human replies, the tool returns the reply text + `thread_id` + responder to the LLM.
+10. **Cleanup**: On successful reply, signal abort, or session shutdown, the tool deregisters the event queue.
 
 ## Zulip Mapping
 
 | Concept | Zulip Equivalent | Example |
 |---------|-----------------|---------|
-| Repo channel | **Stream** | `fix-die-repeat` |
-| Agent question + conversation | **Topic** within stream | `Agent Q #3 — payment processing` |
+| Extension (global) | **Stream** | `pi-human-loop` |
+| Repo + branch | **Topic** within stream | `my-repo:feature/add-payments` |
 | Agent's question/follow-up | Bot message in topic | Posted by the Zulip bot user |
 | Human's reply | Human message in same topic | Any non-bot message |
 | Multi-turn | Multiple messages in topic | Tool calls reference topic via `thread_id` |
 
+> **Topic length limit:** Zulip topics are limited to **60 Unicode code points**. The `repo:branch` format in `src/tool.ts` respects `ZULIP_MAX_TOPIC_LENGTH` by truncating the branch side first, then the repo name if needed, appending `...` when truncated.
+
 ## Configuration Schema
 
-All configuration via environment variables:
+Configuration is loaded from three sources, merged in this order:
+
+1. Project config: `.pi/human-loop.json`
+2. Environment variables
+3. Global config: `~/.pi/human-loop.json`
+
+### Global Config (`~/.pi/human-loop.json`)
+
+```jsonc
+{
+  "serverUrl": "https://zulip.example.com",
+  "botEmail": "bot@example.com",
+  "botApiKey": "your-api-key-here",
+  "stream": "pi-human-loop",
+  "autoProvision": true,
+  "pollIntervalMs": 5000,
+  "debug": false
+}
+```
+
+### Project Config (`.pi/human-loop.json`)
+
+```jsonc
+{
+  "stream": "my-project",
+  "streamDescription": "optional description",
+  "pollIntervalMs": 3000
+}
+```
+
+### Environment Variables (optional)
 
 ```bash
 ZULIP_SERVER_URL=https://zulip.example.com
@@ -68,15 +108,36 @@ ZULIP_BOT_EMAIL=bot@example.com
 ZULIP_BOT_API_KEY=your-api-key-here
 ZULIP_STREAM=fix-die-repeat
 ZULIP_POLL_INTERVAL_MS=5000  # optional
+ZULIP_DEBUG=true             # optional, enables debug logging
 ```
 
 ### Validation Rules
 
-- All required variables must be present and non-empty.
-- `ZULIP_SERVER_URL` must be a valid URL (starts with `http://` or `https://`).
-- `ZULIP_POLL_INTERVAL_MS` must be a positive integer if provided.
+- Required fields: server URL, bot email, bot API key (can come from any source).
+- `serverUrl` must be a valid URL (starts with `http://` or `https://`).
+- `pollIntervalMs` must be a positive integer if provided.
+- `debug` is a boolean (default: `false`). When enabled, logs are written to `.pi/human-loop-debug.log`.
 
-When validation fails, the tool returns an error result on first call, explaining which env vars are missing. This avoids crashing Pi on startup.
+When validation fails, the tool returns an error result on first call, explaining the configuration errors.
+
+### Subscription Requirement
+
+The bot must be subscribed to a stream to receive event queue events from that stream. Event queue narrows filter messages based on the user's channel subscriptions. If the bot is not subscribed to a stream, the narrow produces no message events — only heartbeats.
+
+The extension automatically ensures the bot is subscribed to the stream by calling `ensureSubscribed()` before registering an event queue. This is done for all streams (both auto-provisioned and manually configured).
+
+### BAD_EVENT_QUEUE_ID Re-registration
+
+Zulip garbage-collects event queues after approximately 10 minutes of inactivity. When an event queue is garbage-collected, the `/api/v1/events` endpoint returns a `BAD_EVENT_QUEUE_ID` error.
+
+The extension handles this error by:
+1. Detecting the `BAD_EVENT_QUEUE_ID` error in the poll response
+2. Re-registering the event queue with the same stream and topic
+3. Continuing to poll with the new queue ID
+4. Logging the re-registration event for debugging
+5. Limiting re-registration attempts to 3 to avoid infinite loops
+
+This ensures that long-running conversations can continue even if the initial event queue is garbage-collected while waiting for a human reply.
 
 ## Development Guidelines
 
@@ -89,6 +150,9 @@ When validation fails, the tool returns an error result on first call, explainin
 - Keep config reading and validation in `src/config.ts`.
 - Keep Zulip API operations in `src/zulip-client.ts`.
 - Keep tool definition and execute logic in `src/tool.ts`.
+- Keep auto-provisioning in `src/auto-provision.ts`.
+- Keep repo detection in `src/repo.ts`.
+- Keep the configuration wizard in `src/wizard.ts` and UI helpers in `src/ui-helpers.ts`.
 - Keep system prompt guidance in `src/prompt.ts`.
 - Keep queue registry and cleanup logic in `src/queue-registry.ts`.
 - Keep extension entry point and event handlers in `index.ts`.
@@ -115,4 +179,4 @@ The extension works in Pi's print mode (`-p` flag):
 - ✅ `session_shutdown` event fires — cleanup works
 - ❌ `ctx.ui.*` dialog methods are no-ops
 
-The extension must not depend on any UI methods for core functionality. All interaction happens through the Zulip API.
+The extension must not depend on any UI methods for core functionality. The only UI exception is the interactive `/human-loop-config` wizard, which guards on `ctx.hasUI`.
