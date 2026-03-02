@@ -14,6 +14,7 @@ type MockedZulipClient = {
   pollForReply: ReturnType<typeof vi.fn<ZulipClient["pollForReply"]>>;
   deregisterQueue: ReturnType<typeof vi.fn<ZulipClient["deregisterQueue"]>>;
   ensureSubscribed: ReturnType<typeof vi.fn<ZulipClient["ensureSubscribed"]>>;
+  checkStreamExists: ReturnType<typeof vi.fn<ZulipClient["checkStreamExists"]>>;
 };
 
 describe("buildTopic", () => {
@@ -116,12 +117,14 @@ describe("tool", () => {
     pollForReply: vi.fn(),
     deregisterQueue: vi.fn(),
     ensureSubscribed: vi.fn(),
+    checkStreamExists: vi.fn(),
   };
 
   const ctx = { cwd: "/tmp" } as ExtensionContext;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockZulipClient.checkStreamExists.mockResolvedValue(true);
   });
 
   type ConfigOverride = Omit<Partial<typeof baseConfig>, "stream"> & {
@@ -1027,5 +1030,36 @@ describe("tool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content?.[0]?.text).toBe("Human consultation cancelled.");
+  });
+
+  it("should return critical result when stream does not exist and auto-provision is disabled", async () => {
+    mockZulipClient.checkStreamExists.mockResolvedValue(false);
+    mockZulipClient.ensureSubscribed.mockResolvedValue();
+
+    const { tool } = buildTool({ autoProvision: false });
+
+    const result = await tool.execute(
+      "tool-call-123",
+      {
+        message: "What should I do? Context\n\nConfidence: 25/100 — unsure.",
+        confidence: 25,
+      },
+      new AbortController().signal,
+      undefined,
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content?.[0]?.text).toContain(
+      "CRITICAL: Failed to reach human",
+    );
+    expect(result.content?.[0]?.text).toContain(
+      'Zulip stream "test-stream" does not exist',
+    );
+    expect(result.content?.[0]?.text).toContain(
+      "auto-provisioning is disabled",
+    );
+    expect(result.content?.[0]?.text).toContain("Do NOT proceed");
+    expect(mockZulipClient.ensureSubscribed).not.toHaveBeenCalled();
   });
 });

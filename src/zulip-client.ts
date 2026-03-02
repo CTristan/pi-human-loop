@@ -48,7 +48,10 @@ export interface ZulipClient {
   deregisterQueue(queueId: string): Promise<void>;
   validateCredentials(): Promise<ZulipUserProfile>;
   createStream(name: string, description?: string): Promise<void>;
-  ensureSubscribed(streamName: string): Promise<void>;
+  ensureSubscribed(
+    streamName: string,
+    options?: { skipExistsCheck?: boolean },
+  ): Promise<void>;
   checkStreamExists(name: string): Promise<boolean>;
   getStreamSubscriptions(): Promise<ZulipStreamInfo[]>;
 }
@@ -531,9 +534,27 @@ export function createZulipClient(
     /**
      * Ensures the bot is subscribed to a stream.
      * This is idempotent - safe to call if already subscribed.
+     *
+     * @param streamName - The name of the stream to subscribe to
+     * @param options.skipExistsCheck - Skip the stream existence check. Use this when the caller
+     *   has already verified the stream exists to avoid redundant API calls.
+     * @throws {Error} If the stream does not exist (when skipExistsCheck is false)
      */
-    async ensureSubscribed(streamName: string): Promise<void> {
+    async ensureSubscribed(
+      streamName: string,
+      options?: { skipExistsCheck?: boolean },
+    ): Promise<void> {
       logger?.debug("ZulipClient.ensureSubscribed called", { streamName });
+
+      if (!options?.skipExistsCheck) {
+        const streamExists = await client.checkStreamExists(streamName);
+        if (!streamExists) {
+          throw new Error(
+            `Zulip stream "${streamName}" does not exist. Create it manually or enable auto-provisioning.`,
+          );
+        }
+      }
+
       const url = `${baseUrl}/api/v1/users/me/subscriptions`;
       const subscriptions = [{ name: streamName }];
 

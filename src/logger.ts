@@ -19,6 +19,8 @@ const initializedLogFiles = new Set<string>();
 export interface Logger {
   /** Log a debug message with optional structured data. */
   debug(message: string, data?: Record<string, unknown>): void;
+  /** Log an error message with optional structured data. */
+  error(message: string, data?: Record<string, unknown>): void;
 }
 
 export interface LoggerConfig {
@@ -30,8 +32,25 @@ export interface LoggerConfig {
   cwd?: string;
 }
 
+/**
+ * Log entry structure written to the debug log file.
+ *
+ * Each line in the log file is a JSON object with the following structure:
+ *
+ * ```json
+ * {
+ *   "timestamp": "2026-03-01T21:30:00.000Z",
+ *   "level": "DEBUG",
+ *   "message": "Tool execute called",
+ *   "data": { "key": "value" }
+ * }
+ * ```
+ *
+ * The `data` field is only present when additional structured data is logged.
+ */
 interface LogEntry {
   timestamp: string;
+  level: "DEBUG" | "ERROR";
   message: string;
   data?: Record<string, unknown>;
 }
@@ -68,6 +87,23 @@ export function createLogger(config: LoggerConfig): Logger {
 
       const entry: LogEntry = {
         timestamp: new Date().toISOString(),
+        level: "DEBUG",
+        message,
+        ...(data !== undefined && { data }),
+      };
+
+      appendLogLine(fullPath, entry);
+    },
+    error(message: string, data?: Record<string, unknown>): void {
+      if (!initialized) {
+        // Truncate log file on session start
+        ensureLogFileExists(fullPath);
+        initialized = true;
+      }
+
+      const entry: LogEntry = {
+        timestamp: new Date().toISOString(),
+        level: "ERROR",
         message,
         ...(data !== undefined && { data }),
       };
@@ -80,6 +116,9 @@ export function createLogger(config: LoggerConfig): Logger {
 function createNoOpLogger(): Logger {
   return {
     debug(): void {
+      // No-op - zero overhead when debug is disabled
+    },
+    error(): void {
       // No-op - zero overhead when debug is disabled
     },
   };

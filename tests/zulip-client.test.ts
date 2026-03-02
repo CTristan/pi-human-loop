@@ -149,7 +149,7 @@ describe("zulip-client", () => {
   });
 
   it("should log registerEventQueue narrow payload", async () => {
-    const logger = { debug: vi.fn() };
+    const logger = { debug: vi.fn(), error: vi.fn() };
     const clientWithLogger = createZulipClient({
       ...config,
       logger,
@@ -853,9 +853,17 @@ describe("zulip-client", () => {
   });
 
   it("should ensure subscribed to stream", async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      text: async () => "",
+    mockFetch.mockImplementation(async (url) => {
+      if (url.toString().includes("/api/v1/streams")) {
+        return {
+          ok: true,
+          json: async () => ({ streams: [{ name: "test-stream" }] }),
+        };
+      }
+      return {
+        ok: true,
+        text: async () => "",
+      };
     });
 
     await expect(client.ensureSubscribed("test-stream")).resolves.not.toThrow();
@@ -867,15 +875,23 @@ describe("zulip-client", () => {
   });
 
   it("should log ensureSubscribed call", async () => {
-    const logger = { debug: vi.fn() };
+    const logger = { debug: vi.fn(), error: vi.fn() };
     const clientWithLogger = createZulipClient({
       ...config,
       logger,
     });
 
-    mockFetch.mockResolvedValue({
-      ok: true,
-      text: async () => "",
+    mockFetch.mockImplementation(async (url) => {
+      if (url.toString().includes("/api/v1/streams")) {
+        return {
+          ok: true,
+          json: async () => ({ streams: [{ name: "test-stream" }] }),
+        };
+      }
+      return {
+        ok: true,
+        text: async () => "",
+      };
     });
 
     await clientWithLogger.ensureSubscribed("test-stream");
@@ -886,16 +902,43 @@ describe("zulip-client", () => {
     );
   });
 
-  it("should throw when ensureSubscribed fails", async () => {
-    mockFetch.mockResolvedValue({
-      ok: false,
-      status: 400,
-      statusText: "Bad Request",
-      text: async () => "Stream not found",
+  it("should throw when ensureSubscribed fails during subscription", async () => {
+    mockFetch.mockImplementation(async (url) => {
+      if (url.toString().includes("/api/v1/streams")) {
+        return {
+          ok: true,
+          json: async () => ({ streams: [{ name: "nonexistent" }] }),
+        };
+      }
+      return {
+        ok: false,
+        status: 400,
+        statusText: "Bad Request",
+        text: async () => "Stream not found",
+      };
     });
 
     await expect(client.ensureSubscribed("nonexistent")).rejects.toThrow(
       /Failed to subscribe to stream: 400/,
+    );
+  });
+
+  it("should throw when ensureSubscribed fails because stream does not exist", async () => {
+    mockFetch.mockImplementation(async (url) => {
+      if (url.toString().includes("/api/v1/streams")) {
+        return {
+          ok: true,
+          json: async () => ({ streams: [] }),
+        };
+      }
+      return {
+        ok: true,
+        text: async () => "",
+      };
+    });
+
+    await expect(client.ensureSubscribed("nonexistent")).rejects.toThrow(
+      /Zulip stream "nonexistent" does not exist/,
     );
   });
 
@@ -1058,7 +1101,7 @@ describe("zulip-client", () => {
         });
 
         const abortController = new AbortController();
-        const logger = { debug: vi.fn() };
+        const logger = { debug: vi.fn(), error: vi.fn() };
         const clientWithLogger = createZulipClient({
           ...config,
           logger,
@@ -1114,7 +1157,7 @@ describe("zulip-client", () => {
 
   describe("message ID filtering", () => {
     it("should skip messages with id <= questionMessageId", async () => {
-      const logger = { debug: vi.fn() };
+      const logger = { debug: vi.fn(), error: vi.fn() };
       const clientWithLogger = createZulipClient({
         ...config,
         logger,

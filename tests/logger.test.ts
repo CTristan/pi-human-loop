@@ -52,6 +52,34 @@ describe("logger", () => {
       expect(secondEntry.data).toEqual({ key: "value" });
     });
 
+    it("writes error log lines to file", () => {
+      const logger = createLogger({
+        debug: true,
+        logPath: logPath,
+        cwd: tempDir,
+      });
+
+      logger.error("Error message");
+      logger.error("Another error", { code: 500 });
+
+      const logContent = fs.readFileSync(logPath, "utf8");
+      const lines = logContent.trim().split("\n");
+
+      expect(lines).toHaveLength(2);
+
+      const firstEntry = JSON.parse(lines[0]!);
+      expect(firstEntry).toHaveProperty("timestamp");
+      expect(firstEntry.level).toBe("ERROR");
+      expect(firstEntry.message).toBe("Error message");
+      expect(firstEntry.data).toBeUndefined();
+
+      const secondEntry = JSON.parse(lines[1]!);
+      expect(secondEntry).toHaveProperty("timestamp");
+      expect(secondEntry.level).toBe("ERROR");
+      expect(secondEntry.message).toBe("Another error");
+      expect(secondEntry.data).toEqual({ code: 500 });
+    });
+
     it("truncates log file on session start", () => {
       // Create initial log content
       fs.writeFileSync(logPath, "old content\n");

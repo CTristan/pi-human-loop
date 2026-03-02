@@ -231,8 +231,10 @@ export function createAskHumanTool(
       // Create logger reference (will be set after config loads)
       const loggerRef: {
         debug: (message: string, data?: Record<string, unknown>) => void;
+        error: (message: string, data?: Record<string, unknown>) => void;
       } = {
         debug: () => {}, // No-op initially
+        error: () => {}, // No-op initially
       };
 
       // Create initial logger
@@ -242,6 +244,7 @@ export function createAskHumanTool(
         cwd: ctx.cwd,
       });
       loggerRef.debug = initialLogger.debug;
+      loggerRef.error = initialLogger.error;
 
       // Track if stream existence has been ensured for this tool execution
       let streamEnsured = false;
@@ -271,6 +274,7 @@ export function createAskHumanTool(
           });
           // Copy the actual logger methods to the existing logger reference
           loggerRef.debug = actualLogger.debug;
+          loggerRef.error = actualLogger.error;
 
           loggerRef.debug("Config loaded", {
             serverUrl: config.serverUrl,
@@ -353,7 +357,22 @@ export function createAskHumanTool(
         // Ensure bot is subscribed to the stream (required for event queue events)
         // Skip if auto-provisioning already handled subscription
         if (!config.autoProvision) {
-          await zulipClient.ensureSubscribed(config.stream);
+          const streamExists = await zulipClient.checkStreamExists(
+            config.stream,
+          );
+          if (!streamExists) {
+            loggerRef.error(
+              "Configured stream does not exist and auto-provisioning is disabled",
+              { stream: config.stream },
+            );
+            return criticalResult(
+              `Zulip stream "${config.stream}" does not exist and auto-provisioning is disabled. ` +
+                "Create the stream manually or enable auto-provisioning.",
+            );
+          }
+          await zulipClient.ensureSubscribed(config.stream, {
+            skipExistsCheck: true,
+          });
           loggerRef.debug("Ensured bot subscription", {
             stream: config.stream,
           });
