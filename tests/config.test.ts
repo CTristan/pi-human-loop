@@ -269,9 +269,31 @@ describe("config", () => {
       botApiKey: "test-key",
     });
 
-    expect(() => loadConfig({ homeDir, cwd: projectDir })).toThrow(
-      /globalConfig.botEmail/,
-    );
+    let thrown: unknown;
+    try {
+      loadConfig({ homeDir, cwd: projectDir });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+
+    const configError = thrown as Error & {
+      configErrors?: Array<{ type: string; var: string }>;
+    };
+
+    expect(
+      configError.configErrors?.filter(
+        (error) =>
+          error.type === "invalid" && error.var === "globalConfig.botEmail",
+      ),
+    ).toHaveLength(1);
+
+    expect(
+      configError.configErrors?.filter(
+        (error) => error.type === "missing" && error.var === "botEmail",
+      ),
+    ).toHaveLength(0);
   });
 
   it("should parse debug field from global config", () => {

@@ -445,6 +445,15 @@ function loadEnvConfig(errors: ConfigError[]): EnvConfigValues {
   return env;
 }
 
+function hasInvalidFieldError(errors: ConfigError[], key: string): boolean {
+  const fieldSuffix = `.${key}`;
+  return errors.some(
+    (error) =>
+      error.type === "invalid" &&
+      (error.var === key || error.var.endsWith(fieldSuffix)),
+  );
+}
+
 /**
  * Loads and validates configuration from global config, env vars, and project config.
  *
@@ -500,12 +509,14 @@ export function loadConfig(options?: {
   }
 
   if (!serverUrl) {
-    errors.push({
-      type: "missing",
-      var: "serverUrl",
-      message:
-        "Zulip server URL is required (set in config files or ZULIP_SERVER_URL)",
-    });
+    if (!hasInvalidFieldError(errors, "serverUrl")) {
+      errors.push({
+        type: "missing",
+        var: "serverUrl",
+        message:
+          "Zulip server URL is required (set in config files or ZULIP_SERVER_URL)",
+      });
+    }
   } else if (!isValidUrl(serverUrl)) {
     errors.push({
       type: "invalid_url",
@@ -515,7 +526,7 @@ export function loadConfig(options?: {
     });
   }
 
-  if (!botEmail) {
+  if (!botEmail && !hasInvalidFieldError(errors, "botEmail")) {
     errors.push({
       type: "missing",
       var: "botEmail",
@@ -523,7 +534,7 @@ export function loadConfig(options?: {
     });
   }
 
-  if (!botApiKey) {
+  if (!botApiKey && !hasInvalidFieldError(errors, "botApiKey")) {
     errors.push({
       type: "missing",
       var: "botApiKey",
