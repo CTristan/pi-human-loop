@@ -6,33 +6,22 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { loadConfig } from "./src/config.js";
 import { ASK_HUMAN_GUIDANCE } from "./src/prompt.js";
 import { cleanupAllQueues } from "./src/queue-registry.js";
 import { createAskHumanTool } from "./src/tool.js";
-import { createZulipClient, type ZulipClient } from "./src/zulip-client.js";
+import { runWizard } from "./src/wizard.js";
 
 export default function (pi: ExtensionAPI): void {
-  // Load configuration - we do this at startup but allow extension to load
-  // even if misconfigured. The tool will return errors on first call if needed.
-  let config: ReturnType<typeof loadConfig> | null = null;
-  let zulipClient: ZulipClient | null = null;
-  let configError: Error | null = null;
+  pi.registerTool(createAskHumanTool());
 
-  try {
-    config = loadConfig();
-    zulipClient = createZulipClient(config);
-  } catch (error) {
-    // Configuration not set - extension will load but tool will return errors on first call
-    // This is intentional to avoid crashing Pi when extension is loaded but not configured
-    configError = error instanceof Error ? error : new Error(String(error));
-    console.warn(
-      `pi-human-loop: Configuration error, extension will not be functional: ${configError.message}`,
-    );
-  }
-
-  // Always register the ask_human tool - it will handle config errors lazily
-  pi.registerTool(createAskHumanTool(config, zulipClient, configError));
+  pi.registerCommand("human-loop-config", {
+    description:
+      "Configure Zulip bot credentials, stream settings, and auto-provisioning",
+    handler: async (_args, ctx) => {
+      void _args;
+      await runWizard(ctx);
+    },
+  });
 
   // Inject usage guidance into system prompt
   pi.on("before_agent_start", async (event, _ctx) => {
@@ -43,7 +32,7 @@ export default function (pi: ExtensionAPI): void {
     };
   });
 
-  // Clean up on session shutdown (runs even if config is invalid)
+  // Clean up on session shutdown
   pi.on("session_shutdown", async (_event, _ctx) => {
     void _event;
     void _ctx;

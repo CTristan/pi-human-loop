@@ -2,14 +2,22 @@
  * Tests for configuration loading and validation.
  */
 
-import { loadConfig } from "../src/config.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import {
+  CONFIG_DEFAULTS,
+  getConfigPaths,
+  loadConfig,
+  loadGlobalConfig,
+  saveConfigFile,
+} from "../src/config.js";
 
 describe("config", () => {
-  // Store original env vars
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
-    // Clear all Zulip env vars so each test starts from a clean state
     for (const key of Object.keys(process.env)) {
       if (key.startsWith("ZULIP_")) {
         delete process.env[key as keyof typeof process.env];
@@ -18,7 +26,6 @@ describe("config", () => {
   });
 
   afterAll(() => {
-    // Restore environment after all tests complete
     for (const key of Object.keys(process.env)) {
       if (!(key in originalEnv)) {
         delete process.env[key as keyof typeof process.env];
@@ -30,192 +37,534 @@ describe("config", () => {
     }
   });
 
-  it("should load valid config with all required vars", () => {
-    process.env.ZULIP_SERVER_URL = "https://zulip.example.com";
-    process.env.ZULIP_BOT_EMAIL = "bot@example.com";
-    process.env.ZULIP_BOT_API_KEY = "test-api-key";
-    process.env.ZULIP_STREAM = "test-stream";
+  const tempBaseDirs: string[] = [];
 
-    const config = loadConfig();
-    expect(config.serverUrl).toBe("https://zulip.example.com");
-    expect(config.botEmail).toBe("bot@example.com");
-    expect(config.botApiKey).toBe("test-api-key");
-    expect(config.stream).toBe("test-stream");
-    expect(config.pollIntervalMs).toBe(5000);
-  });
+  function setupTempDirs() {
+    const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-human-loop-"));
+    const homeDir = path.join(baseDir, "home");
+    const projectDir = path.join(baseDir, "project");
+    fs.mkdirSync(homeDir, { recursive: true });
+    fs.mkdirSync(projectDir, { recursive: true });
+    const paths = getConfigPaths({ homeDir, cwd: projectDir });
+    tempBaseDirs.push(baseDir);
+    return { baseDir, homeDir, projectDir, paths };
+  }
 
-  it("should load valid config with custom poll interval", () => {
-    process.env.ZULIP_SERVER_URL = "https://zulip.example.com";
-    process.env.ZULIP_BOT_EMAIL = "bot@example.com";
-    process.env.ZULIP_BOT_API_KEY = "test-api-key";
-    process.env.ZULIP_STREAM = "test-stream";
-    process.env.ZULIP_POLL_INTERVAL_MS = "10000";
-
-    const config = loadConfig();
-    expect(config.pollIntervalMs).toBe(10000);
-  });
-
-  it("should load valid config with http URL", () => {
-    process.env.ZULIP_SERVER_URL = "http://zulip.example.com";
-    process.env.ZULIP_BOT_EMAIL = "bot@example.com";
-    process.env.ZULIP_BOT_API_KEY = "test-api-key";
-    process.env.ZULIP_STREAM = "test-stream";
-
-    const config = loadConfig();
-    expect(config.serverUrl).toBe("http://zulip.example.com");
-  });
-
-  it("should throw error when ZULIP_SERVER_URL is missing", () => {
-    process.env.ZULIP_BOT_EMAIL = "bot@example.com";
-    process.env.ZULIP_BOT_API_KEY = "test-api-key";
-    process.env.ZULIP_STREAM = "test-stream";
-
-    expect(() => loadConfig()).toThrow(/Configuration validation failed/);
-    expect(() => loadConfig()).toThrow(/ZULIP_SERVER_URL/);
-
-    try {
-      loadConfig();
-    } catch (e) {
-      const err = e as Error & { configErrors?: unknown[] };
-      expect(err.configErrors).toBeDefined();
-      expect(err.configErrors).toHaveLength(1);
-      if (err.configErrors) {
-        expect(err.configErrors[0]).toMatchObject({
-          type: "missing",
-          var: "ZULIP_SERVER_URL",
-        });
+  afterEach(() => {
+    for (const baseDir of tempBaseDirs.splice(0, tempBaseDirs.length)) {
+      try {
+        fs.rmSync(baseDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors in tests
       }
     }
   });
 
-  it("should throw error when ZULIP_BOT_EMAIL is missing", () => {
-    process.env.ZULIP_SERVER_URL = "https://zulip.example.com";
-    process.env.ZULIP_BOT_API_KEY = "test-api-key";
-    process.env.ZULIP_STREAM = "test-stream";
+  it("should merge project > env > global", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
 
-    expect(() => loadConfig()).toThrow(/Configuration validation failed/);
-    expect(() => loadConfig()).toThrow(/ZULIP_BOT_EMAIL/);
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://global.example.com",
+      botEmail: "global@example.com",
+      botApiKey: "global-key",
+      stream: "global-stream",
+      pollIntervalMs: 9000,
+      autoProvision: false,
+    });
+
+    saveConfigFile(paths.projectPath, {
+      stream: "project-stream",
+      pollIntervalMs: 3000,
+    });
+
+    process.env.ZULIP_SERVER_URL = "https://env.example.com";
+    process.env.ZULIP_STREAM = "env-stream";
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.serverUrl).toBe("https://env.example.com");
+    expect(config.botEmail).toBe("global@example.com");
+    expect(config.botApiKey).toBe("global-key");
+    expect(config.stream).toBe("project-stream");
+    expect(config.pollIntervalMs).toBe(3000);
+    expect(config.autoProvision).toBe(false);
   });
 
-  it("should throw error when ZULIP_BOT_API_KEY is missing", () => {
+  it("should allow env-only configuration", () => {
+    const { homeDir, projectDir } = setupTempDirs();
+
     process.env.ZULIP_SERVER_URL = "https://zulip.example.com";
     process.env.ZULIP_BOT_EMAIL = "bot@example.com";
-    process.env.ZULIP_STREAM = "test-stream";
-
-    expect(() => loadConfig()).toThrow(/Configuration validation failed/);
-    expect(() => loadConfig()).toThrow(/ZULIP_BOT_API_KEY/);
-  });
-
-  it("should throw error when ZULIP_STREAM is missing", () => {
-    process.env.ZULIP_SERVER_URL = "https://zulip.example.com";
-    process.env.ZULIP_BOT_EMAIL = "bot@example.com";
     process.env.ZULIP_BOT_API_KEY = "test-api-key";
+    process.env.ZULIP_STREAM = "env-stream";
 
-    expect(() => loadConfig()).toThrow(/Configuration validation failed/);
-    expect(() => loadConfig()).toThrow(/ZULIP_STREAM/);
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.serverUrl).toBe("https://zulip.example.com");
+    expect(config.botEmail).toBe("bot@example.com");
+    expect(config.botApiKey).toBe("test-api-key");
+    expect(config.stream).toBe("env-stream");
+    expect(config.streamSource).toBe("env-var");
+    expect(config.pollIntervalMs).toBe(CONFIG_DEFAULTS.pollIntervalMs);
   });
 
-  it("should throw error when multiple required vars are missing", () => {
-    process.env.ZULIP_SERVER_URL = "https://zulip.example.com";
+  it("should combine partial configs across sources", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
 
-    expect(() => loadConfig()).toThrow(/Configuration validation failed/);
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+    });
 
-    try {
-      loadConfig();
-    } catch (e) {
-      const err = e as Error & { configErrors?: unknown[] };
-      expect(err.configErrors).toHaveLength(3);
+    saveConfigFile(paths.projectPath, {
+      stream: "project-stream",
+    });
+
+    process.env.ZULIP_BOT_API_KEY = "env-key";
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.serverUrl).toBe("https://zulip.example.com");
+    expect(config.botEmail).toBe("bot@example.com");
+    expect(config.botApiKey).toBe("env-key");
+    expect(config.stream).toBe("project-stream");
+    expect(config.streamSource).toBe("project-config");
+    expect(config.autoProvision).toBe(true);
+  });
+
+  it("should save and load config files", () => {
+    const { paths } = setupTempDirs();
+
+    const payload = {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+      autoProvision: true,
+      pollIntervalMs: 7000,
+    };
+
+    saveConfigFile(paths.globalPath, payload);
+
+    const loaded = loadGlobalConfig(paths);
+    expect(loaded).toEqual(payload);
+  });
+
+  it("should save config files with restrictive permissions", () => {
+    if (process.platform === "win32") {
+      return;
     }
+
+    const { paths } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    const directoryMode =
+      fs.statSync(path.dirname(paths.globalPath)).mode & 0o777;
+    const fileMode = fs.statSync(paths.globalPath).mode & 0o777;
+
+    expect(directoryMode).toBe(0o700);
+    expect(fileMode).toBe(0o600);
   });
 
-  it("should throw error when ZULIP_SERVER_URL is invalid", () => {
-    process.env.ZULIP_SERVER_URL = "not-a-valid-url";
-    process.env.ZULIP_BOT_EMAIL = "bot@example.com";
-    process.env.ZULIP_BOT_API_KEY = "test-api-key";
-    process.env.ZULIP_STREAM = "test-stream";
+  it("should throw when required fields are missing", () => {
+    const { homeDir, projectDir } = setupTempDirs();
 
-    expect(() => loadConfig()).toThrow(/must be a valid URL/);
-  });
-
-  it("should throw error when ZULIP_SERVER_URL is ftp protocol", () => {
-    process.env.ZULIP_SERVER_URL = "ftp://zulip.example.com";
-    process.env.ZULIP_BOT_EMAIL = "bot@example.com";
-    process.env.ZULIP_BOT_API_KEY = "test-api-key";
-    process.env.ZULIP_STREAM = "test-stream";
-
-    expect(() => loadConfig()).toThrow(/must be a valid URL/);
-  });
-
-  it("should throw error when ZULIP_POLL_INTERVAL_MS is not a number", () => {
-    process.env.ZULIP_SERVER_URL = "https://zulip.example.com";
-    process.env.ZULIP_BOT_EMAIL = "bot@example.com";
-    process.env.ZULIP_BOT_API_KEY = "test-api-key";
-    process.env.ZULIP_STREAM = "test-stream";
-    process.env.ZULIP_POLL_INTERVAL_MS = "not-a-number";
-
-    expect(() => loadConfig()).toThrow(/must be a positive integer/);
-  });
-
-  it("should use a generic footer for optional config validation errors", () => {
-    process.env.ZULIP_SERVER_URL = "https://zulip.example.com";
-    process.env.ZULIP_BOT_EMAIL = "bot@example.com";
-    process.env.ZULIP_BOT_API_KEY = "test-api-key";
-    process.env.ZULIP_STREAM = "test-stream";
-    process.env.ZULIP_POLL_INTERVAL_MS = "not-a-number";
-
-    expect(() => loadConfig()).toThrow(
-      /Please fix the above configuration errors\./,
+    expect(() => loadConfig({ homeDir, cwd: projectDir })).toThrow(
+      /Configuration validation failed/,
     );
   });
 
-  it("should throw error when ZULIP_POLL_INTERVAL_MS is negative", () => {
-    process.env.ZULIP_SERVER_URL = "https://zulip.example.com";
-    process.env.ZULIP_BOT_EMAIL = "bot@example.com";
-    process.env.ZULIP_BOT_API_KEY = "test-api-key";
-    process.env.ZULIP_STREAM = "test-stream";
-    process.env.ZULIP_POLL_INTERVAL_MS = "-100";
+  it("should throw on invalid server URL", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
 
-    expect(() => loadConfig()).toThrow(/must be a positive integer/);
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "not-a-url",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    expect(() => loadConfig({ homeDir, cwd: projectDir })).toThrow(
+      /serverUrl must be a valid URL/,
+    );
   });
 
-  it("should throw error when ZULIP_POLL_INTERVAL_MS is zero", () => {
-    process.env.ZULIP_SERVER_URL = "https://zulip.example.com";
-    process.env.ZULIP_BOT_EMAIL = "bot@example.com";
-    process.env.ZULIP_BOT_API_KEY = "test-api-key";
-    process.env.ZULIP_STREAM = "test-stream";
-    process.env.ZULIP_POLL_INTERVAL_MS = "0";
+  it("should throw on invalid poll interval from env", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
 
-    expect(() => loadConfig()).toThrow(/must be a positive integer/);
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    process.env.ZULIP_POLL_INTERVAL_MS = "not-a-number";
+
+    expect(() => loadConfig({ homeDir, cwd: projectDir })).toThrow(
+      /ZULIP_POLL_INTERVAL_MS/,
+    );
   });
 
-  it("should accept ZULIP_POLL_INTERVAL_MS as decimal string", () => {
-    process.env.ZULIP_SERVER_URL = "https://zulip.example.com";
-    process.env.ZULIP_BOT_EMAIL = "bot@example.com";
-    process.env.ZULIP_BOT_API_KEY = "test-api-key";
-    process.env.ZULIP_STREAM = "test-stream";
-    process.env.ZULIP_POLL_INTERVAL_MS = "123";
+  it("should reject malformed poll interval values from env", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
 
-    const config = loadConfig();
-    expect(config.pollIntervalMs).toBe(123);
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    process.env.ZULIP_POLL_INTERVAL_MS = "5000ms";
+
+    expect(() => loadConfig({ homeDir, cwd: projectDir })).toThrow(
+      /ZULIP_POLL_INTERVAL_MS/,
+    );
   });
 
-  it("should use default poll interval if not provided", () => {
-    process.env.ZULIP_SERVER_URL = "https://zulip.example.com";
-    process.env.ZULIP_BOT_EMAIL = "bot@example.com";
-    process.env.ZULIP_BOT_API_KEY = "test-api-key";
-    process.env.ZULIP_STREAM = "test-stream";
+  it("should throw on invalid poll interval in project config", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
 
-    const config = loadConfig();
-    expect(config.pollIntervalMs).toBe(5000);
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    saveConfigFile(paths.projectPath, {
+      pollIntervalMs: "nope",
+    });
+
+    expect(() => loadConfig({ homeDir, cwd: projectDir })).toThrow(
+      /projectConfig.pollIntervalMs/,
+    );
   });
 
-  it("should handle URL with trailing slash", () => {
-    process.env.ZULIP_SERVER_URL = "https://zulip.example.com/";
-    process.env.ZULIP_BOT_EMAIL = "bot@example.com";
-    process.env.ZULIP_BOT_API_KEY = "test-api-key";
-    process.env.ZULIP_STREAM = "test-stream";
+  it("should reject malformed poll interval strings in config files", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
 
-    const config = loadConfig();
-    expect(config.serverUrl).toBe("https://zulip.example.com/");
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    saveConfigFile(paths.projectPath, {
+      pollIntervalMs: "42abc",
+    });
+
+    expect(() => loadConfig({ homeDir, cwd: projectDir })).toThrow(
+      /projectConfig.pollIntervalMs/,
+    );
+  });
+
+  it("should throw on invalid config field types", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: 123,
+      botApiKey: "test-key",
+    });
+
+    let thrown: unknown;
+    try {
+      loadConfig({ homeDir, cwd: projectDir });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+
+    const configError = thrown as Error & {
+      configErrors?: Array<{ type: string; var: string }>;
+    };
+
+    expect(
+      configError.configErrors?.filter(
+        (error) =>
+          error.type === "invalid" && error.var === "globalConfig.botEmail",
+      ),
+    ).toHaveLength(1);
+
+    expect(
+      configError.configErrors?.filter(
+        (error) => error.type === "missing" && error.var === "botEmail",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("should parse debug field from global config", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+      debug: true,
+    });
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(true);
+  });
+
+  it("should parse debug field from project config", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+      debug: false,
+    });
+
+    saveConfigFile(paths.projectPath, {
+      debug: true,
+    });
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(true);
+  });
+
+  it("should parse debug field from env var ZULIP_DEBUG=true", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    process.env.ZULIP_DEBUG = "true";
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(true);
+  });
+
+  it("should parse debug field from env var ZULIP_DEBUG=1", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    process.env.ZULIP_DEBUG = "1";
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(true);
+  });
+
+  it("should parse debug field from env var ZULIP_DEBUG=yes", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    process.env.ZULIP_DEBUG = "yes";
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(true);
+  });
+
+  it("should treat truthy env var values other than true/1/yes as false", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    process.env.ZULIP_DEBUG = "enabled";
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(false);
+  });
+
+  it("should ignore empty ZULIP_DEBUG and keep higher-priority config value", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+      debug: true,
+    });
+
+    process.env.ZULIP_DEBUG = "   ";
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(true);
+  });
+
+  it("should default debug to false when not specified", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(false);
+  });
+
+  it("should merge debug with project > env > global precedence", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+      debug: false,
+    });
+
+    saveConfigFile(paths.projectPath, {
+      debug: true,
+    });
+
+    process.env.ZULIP_DEBUG = "false";
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(true);
+  });
+
+  it("should merge debug with env > global precedence when no project config", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+      debug: false,
+    });
+
+    process.env.ZULIP_DEBUG = "true";
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(true);
+  });
+
+  it("should handle boolean debug field in config files", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    saveConfigFile(paths.projectPath, {
+      debug: true,
+    });
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.debug).toBe(true);
+  });
+
+  it("should default stream to pi-human-loop when not configured", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.stream).toBe("pi-human-loop");
+    expect(config.streamSource).toBe("default");
+  });
+
+  it("should track stream source as global-config when set in global", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+      stream: "global-stream",
+    });
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.stream).toBe("global-stream");
+    expect(config.streamSource).toBe("global-config");
+  });
+
+  it("should track stream source as project-config when set in project", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+      stream: "global-stream",
+    });
+
+    saveConfigFile(paths.projectPath, {
+      stream: "project-stream",
+    });
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.stream).toBe("project-stream");
+    expect(config.streamSource).toBe("project-config");
+  });
+
+  it("should track stream source as env-var when set in environment", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    process.env.ZULIP_STREAM = "env-stream";
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.stream).toBe("env-stream");
+    expect(config.streamSource).toBe("env-var");
+  });
+
+  it("should have stream field always defined (required)", () => {
+    const { paths, homeDir, projectDir } = setupTempDirs();
+
+    saveConfigFile(paths.globalPath, {
+      serverUrl: "https://zulip.example.com",
+      botEmail: "bot@example.com",
+      botApiKey: "test-key",
+    });
+
+    const config = loadConfig({ homeDir, cwd: projectDir });
+
+    expect(config.stream).toBeDefined();
+    expect(typeof config.stream).toBe("string");
+  });
+
+  it("should include default stream in CONFIG_DEFAULTS", () => {
+    expect(CONFIG_DEFAULTS.stream).toBe("pi-human-loop");
   });
 });

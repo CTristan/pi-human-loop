@@ -9,8 +9,13 @@ describe("prompt", () => {
     expect(ASK_HUMAN_GUIDANCE).toContain("ask_human");
   });
 
-  it("should mention confidence level", () => {
-    expect(ASK_HUMAN_GUIDANCE).toContain("confidence");
+  it("should instruct to compose natural messages", () => {
+    expect(ASK_HUMAN_GUIDANCE).toContain("naturally");
+  });
+
+  it("should mention confidence with reasoning", () => {
+    expect(ASK_HUMAN_GUIDANCE).toContain("confidence score");
+    expect(ASK_HUMAN_GUIDANCE).toContain("explanation of why");
   });
 
   it("should mention thread_id for follow-ups", () => {
@@ -27,5 +32,14 @@ describe("prompt", () => {
 
   it("should include 'how to use it' section", () => {
     expect(ASK_HUMAN_GUIDANCE).toContain("How to use it");
+  });
+
+  it("should mention the message parameter", () => {
+    expect(ASK_HUMAN_GUIDANCE).toContain("ask_human({ message");
+  });
+
+  it("should instruct to stop on errors", () => {
+    expect(ASK_HUMAN_GUIDANCE).toContain("MUST stop working immediately");
+    expect(ASK_HUMAN_GUIDANCE).toContain("Do NOT attempt to continue");
   });
 });
