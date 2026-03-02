@@ -181,7 +181,7 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Here's the answer",
-      subject: "feature/add-payments",
+      subject: "my-repo:feature/add-payments",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
@@ -298,7 +298,7 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
-      subject: "feature/add-payments",
+      subject: "my-repo:feature/add-payments",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
@@ -640,7 +640,7 @@ describe("tool", () => {
       id: "456",
       sender_email: "human@example.com",
       content: "Answer",
-      subject: "feature/add-payments",
+      subject: "my-repo:feature/add-payments",
     });
     mockZulipClient.deregisterQueue.mockResolvedValue();
 
