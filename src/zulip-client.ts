@@ -63,8 +63,8 @@ export interface CreateZulipClientOptions extends ZulipClientConfig {
 /**
  * Generates the Authorization header value for Zulip API requests.
  */
-function getAuthHeader(config: ZulipClientConfig): string {
-  const credentials = `${config.botEmail}:${config.botApiKey}`;
+function getAuthHeader(botEmail: string, botApiKey: string): string {
+  const credentials = `${botEmail}:${botApiKey}`;
   return `Basic ${Buffer.from(credentials).toString("base64")}`;
 }
 
@@ -119,13 +119,7 @@ export function createZulipClient(
 ): ZulipClient {
   const { serverUrl, botEmail, botApiKey, pollIntervalMs, logger } = options;
   const baseUrl = serverUrl.replace(/\/$/, "");
-  const authHeader = getAuthHeader({
-    serverUrl,
-    botEmail,
-    botApiKey,
-    pollIntervalMs,
-    debug: false,
-  });
+  const authHeader = getAuthHeader(botEmail, botApiKey);
 
   const client: ZulipClient = {
     /**
