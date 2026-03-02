@@ -97,6 +97,41 @@ describe("logger", () => {
       expect(logContent).toContain("New message");
     });
 
+    it("appends to existing log file for subsequent logger instances in the same process", () => {
+      // First logger instance truncates and initializes the file
+      const logger1 = createLogger({
+        debug: true,
+        logPath: logPath,
+        cwd: tempDir,
+      });
+      logger1.debug("First message");
+
+      // Verify permissions on the file
+      const stats1 = fs.statSync(logPath);
+      expect(stats1.mode & 0o777).toBe(0o600);
+
+      // Second logger instance appending to the same file
+      const logger2 = createLogger({
+        debug: true,
+        logPath: logPath,
+        cwd: tempDir,
+      });
+
+      // Tamper with permissions to verify they are restored
+      fs.chmodSync(logPath, 0o644);
+
+      logger2.debug("Second message");
+
+      // Verify the file contains both messages (not truncated)
+      const logContent = fs.readFileSync(logPath, "utf8");
+      expect(logContent).toContain("First message");
+      expect(logContent).toContain("Second message");
+
+      // Verify permissions were enforced again
+      const stats2 = fs.statSync(logPath);
+      expect(stats2.mode & 0o777).toBe(0o600);
+    });
+
     it("uses JSON format", () => {
       const logger = createLogger({
         debug: true,

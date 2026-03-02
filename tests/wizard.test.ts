@@ -273,7 +273,7 @@ describe("wizard", () => {
       select: vi
         .fn()
         .mockResolvedValueOnce("Configure stream")
-        .mockResolvedValueOnce(`Project (${paths.projectPath})`)
+        .mockResolvedValueOnce(`Project override (${paths.projectPath})`)
         .mockResolvedValueOnce("Done"),
       input: vi
         .fn()
@@ -382,7 +382,7 @@ describe("wizard", () => {
       select: vi
         .fn()
         .mockResolvedValueOnce("Configure stream")
-        .mockResolvedValueOnce(`Global (${paths.globalPath})`)
+        .mockResolvedValueOnce(`Global default (${paths.globalPath})`)
         .mockResolvedValueOnce("Done"),
       input: vi
         .fn()

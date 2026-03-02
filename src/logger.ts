@@ -132,8 +132,22 @@ function ensureLogFileExists(filePath: string): void {
     }
     // Only truncate if this file hasn't been initialized in this process yet
     if (!initializedLogFiles.has(filePath)) {
-      fs.writeFileSync(filePath, "", { mode: 0o600 });
+      const fd = fs.openSync(filePath, "w", 0o600);
+      try {
+        fs.fchmodSync(fd, 0o600);
+      } finally {
+        fs.closeSync(fd);
+      }
       initializedLogFiles.add(filePath);
+    } else {
+      // Ensure the file exists without truncating, and enforce secure permissions.
+      const fd = fs.openSync(filePath, "a", 0o600);
+      // Ensure permissions are set correctly even if the file was recreated externally.
+      try {
+        fs.fchmodSync(fd, 0o600);
+      } finally {
+        fs.closeSync(fd);
+      }
     }
   } catch (error) {
     // Log errors to console since logger initialization failed.
