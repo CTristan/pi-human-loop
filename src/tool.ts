@@ -98,12 +98,9 @@ const ZULIP_MAX_TOPIC_LENGTH = 60;
  * If the combined string exceeds 60 code points, truncation happens:
  * - A 60-code-point budget is allocated between repo and branch.
  * - Space is always reserved for the ":" separator and the "..." ellipsis.
- * - The branch side is truncated first and gets at least a small minimum
- *   budget; to preserve this, the repo name may be truncated even when it is
- *   shorter than 57 code points.
- * - When space is very limited, the branch may be dropped entirely if
- *   reserving even the minimum branch slice would leave insufficient space
- *   for a meaningful repo name.
+ * - The branch side is truncated first and always gets at least a small
+ *   minimum budget; to preserve this, the repo name may be truncated even
+ *   when it is shorter than 57 code points.
  *
  * @param repoName - The repository name
  * @param branchName - The branch name
@@ -135,9 +132,7 @@ export function buildTopic(repoName: string, branchName: string): string {
       ? totalBudget - separatorCodePoints
       : totalBudget;
 
-  // Reserve minimum budget for branch (at least 3 chars if space allows)
-  // When space is very tight (6 or fewer code points available for repo:branch),
-  // the branch may be dropped entirely
+  // Reserve minimum budget for branch (at least 3 chars)
   const MIN_BRANCH_BUDGET = 3;
   const effectiveTotalBudget = budgetForParts - MIN_BRANCH_BUDGET;
 
@@ -246,9 +241,6 @@ export function createAskHumanTool(
       loggerRef.debug = initialLogger.debug;
       loggerRef.error = initialLogger.error;
 
-      // Track if stream existence has been ensured for this tool execution
-      let streamEnsured = false;
-
       try {
         // Check for abort at start
         if (signal?.aborted) {
@@ -306,13 +298,12 @@ export function createAskHumanTool(
         });
 
         // Ensure stream exists and bot is subscribed (idempotent)
-        if (config.autoProvision && !streamEnsured) {
+        if (config.autoProvision) {
           try {
             await deps.autoProvisionStream(config, zulipClient, {
               cwd: ctx.cwd,
               logger: actualLogger,
             });
-            streamEnsured = true;
             loggerRef.debug("Stream ensured", { stream: config.stream });
           } catch (error) {
             const message =
