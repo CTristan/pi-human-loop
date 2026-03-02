@@ -495,7 +495,9 @@ export function loadConfig(options?: {
   } else if (globalConfig.stream !== undefined) {
     streamDescription = globalConfig.streamDescription;
   } else {
-    streamDescription = merged.streamDescription; // Use inherited description when using default stream
+    // No explicit stream configured; we're using DEFAULT_STREAM.
+    // Ignore any inherited streamDescription to avoid mismatching it to the default stream.
+    streamDescription = undefined;
   }
 
   // Determine the source of the stream value for logging

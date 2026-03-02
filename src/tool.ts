@@ -349,11 +349,7 @@ export function createAskHumanTool(
         // Skip if auto-provisioning already handled subscription
         if (!config.autoProvision) {
           try {
-            await zulipClient.ensureSubscribed(config.stream, {
-              // We rely on the subscription API response to determine whether the
-              // stream is usable or there are permission/non-existence issues.
-              skipExistsCheck: true,
-            });
+            await zulipClient.ensureSubscribed(config.stream);
             loggerRef.debug("Ensured bot subscription", {
               stream: config.stream,
             });

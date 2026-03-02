@@ -106,9 +106,11 @@ describe("logger", () => {
       });
       logger1.debug("First message");
 
-      // Verify permissions on the file
-      const stats1 = fs.statSync(logPath);
-      expect(stats1.mode & 0o777).toBe(0o600);
+      // Verify permissions on the file (skip on Windows where chmod/stat modes are not reliable)
+      if (process.platform !== "win32") {
+        const stats1 = fs.statSync(logPath);
+        expect(stats1.mode & 0o777).toBe(0o600);
+      }
 
       // Second logger instance appending to the same file
       const logger2 = createLogger({
@@ -117,8 +119,10 @@ describe("logger", () => {
         cwd: tempDir,
       });
 
-      // Tamper with permissions to verify they are restored
-      fs.chmodSync(logPath, 0o644);
+      // Tamper with permissions to verify they are restored (skip on Windows)
+      if (process.platform !== "win32") {
+        fs.chmodSync(logPath, 0o644);
+      }
 
       logger2.debug("Second message");
 
@@ -127,9 +131,11 @@ describe("logger", () => {
       expect(logContent).toContain("First message");
       expect(logContent).toContain("Second message");
 
-      // Verify permissions were enforced again
-      const stats2 = fs.statSync(logPath);
-      expect(stats2.mode & 0o777).toBe(0o600);
+      // Verify permissions were enforced again (skip on Windows)
+      if (process.platform !== "win32") {
+        const stats2 = fs.statSync(logPath);
+        expect(stats2.mode & 0o777).toBe(0o600);
+      }
     });
 
     it("uses JSON format", () => {
