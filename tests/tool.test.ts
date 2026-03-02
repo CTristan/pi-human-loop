@@ -1033,8 +1033,11 @@ describe("tool", () => {
   });
 
   it("should return critical result when stream does not exist and auto-provision is disabled", async () => {
-    mockZulipClient.checkStreamExists.mockResolvedValue(false);
-    mockZulipClient.ensureSubscribed.mockResolvedValue();
+    mockZulipClient.ensureSubscribed.mockRejectedValue(
+      new Error(
+        'Zulip stream "test-stream" is not visible to this bot. It may not exist, or it may be a private stream the bot cannot access. Create it manually, adjust permissions, or enable auto-provisioning.',
+      ),
+    );
 
     const { tool } = buildTool({ autoProvision: false });
 
@@ -1054,12 +1057,12 @@ describe("tool", () => {
       "CRITICAL: Failed to reach human",
     );
     expect(result.content?.[0]?.text).toContain(
-      'Zulip stream "test-stream" does not exist',
+      'Failed to subscribe bot to Zulip stream "test-stream"',
     );
     expect(result.content?.[0]?.text).toContain(
-      "auto-provisioning is disabled",
+      "Create the stream, adjust its permissions, or enable auto-provisioning",
     );
     expect(result.content?.[0]?.text).toContain("Do NOT proceed");
-    expect(mockZulipClient.ensureSubscribed).not.toHaveBeenCalled();
+    expect(mockZulipClient.ensureSubscribed).toHaveBeenCalled();
   });
 });

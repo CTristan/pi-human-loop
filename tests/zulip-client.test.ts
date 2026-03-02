@@ -938,7 +938,7 @@ describe("zulip-client", () => {
     });
 
     await expect(client.ensureSubscribed("nonexistent")).rejects.toThrow(
-      /Zulip stream "nonexistent" does not exist/,
+      /Zulip stream "nonexistent" is not visible to this bot/,
     );
   });
 

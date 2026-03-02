@@ -550,7 +550,7 @@ export function createZulipClient(
         const streamExists = await client.checkStreamExists(streamName);
         if (!streamExists) {
           throw new Error(
-            `Zulip stream "${streamName}" does not exist. Create it manually or enable auto-provisioning.`,
+            `Zulip stream "${streamName}" is not visible to this bot. It may not exist, or it may be a private stream the bot cannot access. Create it manually, adjust permissions, or enable auto-provisioning.`,
           );
         }
       }
@@ -573,7 +573,17 @@ export function createZulipClient(
     },
 
     /**
-     * Checks if a stream exists by name.
+     * Checks if a stream is visible to the bot by name.
+     *
+     * This method uses the `/api/v1/streams` endpoint, which returns only
+     * streams that the bot can access. A `false` return value means the
+     * stream is not visible to the bot, which could be because:
+     * - The stream does not exist
+     * - The stream is private and the bot is not invited
+     * - The bot lacks permissions to view the stream
+     *
+     * For determining whether a stream is usable (exists AND is accessible),
+     * rely on the subscription API error response instead of this method.
      */
     async checkStreamExists(name: string): Promise<boolean> {
       const url = new URL(`${baseUrl}/api/v1/streams`);

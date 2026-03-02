@@ -348,25 +348,26 @@ export function createAskHumanTool(
         // Ensure bot is subscribed to the stream (required for event queue events)
         // Skip if auto-provisioning already handled subscription
         if (!config.autoProvision) {
-          const streamExists = await zulipClient.checkStreamExists(
-            config.stream,
-          );
-          if (!streamExists) {
+          try {
+            await zulipClient.ensureSubscribed(config.stream, {
+              // We rely on the subscription API response to determine whether the
+              // stream is usable or there are permission/non-existence issues.
+              skipExistsCheck: true,
+            });
+            loggerRef.debug("Ensured bot subscription", {
+              stream: config.stream,
+            });
+          } catch (error) {
             loggerRef.error(
-              "Configured stream does not exist and auto-provisioning is disabled",
-              { stream: config.stream },
+              "Failed to ensure bot subscription to configured stream",
+              { stream: config.stream, error },
             );
             return criticalResult(
-              `Zulip stream "${config.stream}" does not exist and auto-provisioning is disabled. ` +
-                "Create the stream manually or enable auto-provisioning.",
+              `Failed to subscribe bot to Zulip stream "${config.stream}". ` +
+                "The stream may not exist, or the bot may not have access. " +
+                "Create the stream, adjust its permissions, or enable auto-provisioning.",
             );
           }
-          await zulipClient.ensureSubscribed(config.stream, {
-            skipExistsCheck: true,
-          });
-          loggerRef.debug("Ensured bot subscription", {
-            stream: config.stream,
-          });
         } else {
           loggerRef.debug("Subscription already handled by auto-provisioning", {
             stream: config.stream,
